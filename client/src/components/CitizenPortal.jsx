@@ -1,6 +1,5 @@
 import React, { useState, useEffect } from "react";
-import Timeline from "./Timeline";
-import { UserCheck, ShieldCheck, Search, Clock, Calendar, Hospital, Stethoscope, FileText, AlertCircle, Lock, LogOut } from "lucide-react";
+import { UserCheck, ShieldCheck, Clock, Calendar, Hospital, Stethoscope, FileText, AlertCircle, Lock, LogOut } from "lucide-react";
 
 export default function CitizenPortal({ healthId, setHealthId }) {
   const [birthCertInput, setBirthCertInput] = useState(healthId || "BC-2080-94812");
@@ -21,39 +20,58 @@ export default function CitizenPortal({ healthId, setHealthId }) {
     setIsLoading(true);
     setErrorMsg("");
 
+    const cleanCert = certNumber.trim();
+
     try {
-      // POST /api/patient/login using Birth Certificate Number
+      // 1. Authenticate / Fetch via POST /api/patient/login
       const response = await fetch("http://localhost:3000/api/patient/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
-        body: JSON.stringify({ birthCertificateNumber: certNumber.trim() }),
+        body: JSON.stringify({ birthCertificateNumber: cleanCert }),
       });
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (response.ok && data.success && data.patient) {
         setIsLoggedIn(true);
         setPatientProfile(data.patient);
-        setHealthId(certNumber.trim());
-        fetchPatientRecords(certNumber.trim());
+        setHealthId(cleanCert);
+        fetchPatientRecords(cleanCert);
       } else {
-        setErrorMsg(data.message || "No patient records found for this Birth Certificate Number.");
+        // Try fallback lookup directly from citizens collection
+        await fetchCitizenLookupFallback(cleanCert);
       }
     } catch (err) {
-      // Fallback patient profile
-      setIsLoggedIn(true);
-      setPatientProfile({
-        name: "Ram Kumar Sharma",
-        age: 43,
-        gender: "Male",
-        address: "Ward 4, Balaju, Kathmandu, Bagmati Province",
-        birthCertificateNumber: certNumber,
-        phone: "+977-9841234567",
-      });
-      fetchPatientRecords(certNumber);
+      await fetchCitizenLookupFallback(cleanCert);
     } finally {
       setIsLoading(false);
+    }
+  };
+
+  const fetchCitizenLookupFallback = async (cleanCert) => {
+    try {
+      const response = await fetch(`http://localhost:3000/api/citizens/lookup?birthCertificateNumber=${cleanCert}`);
+      const data = await response.json();
+
+      if (response.ok && data.found && data.citizen) {
+        setIsLoggedIn(true);
+        setPatientProfile({
+          name: data.citizen.fullName || data.citizen.name,
+          age: data.citizen.age,
+          gender: data.citizen.gender,
+          address: data.citizen.address,
+          birthCertificateNumber: data.citizen.birthCertificateNumber,
+          healthId: data.citizen.healthId,
+          phone: data.citizen.phone || "+977-9841234567",
+        });
+        setHealthId(cleanCert);
+        fetchPatientRecords(cleanCert);
+      } else {
+        setErrorMsg(`No registered citizen or medical records found for Birth Certificate '${cleanCert}'.`);
+      }
+    } catch (lookupErr) {
+      setErrorMsg(`Failed to connect to server for Birth Certificate '${cleanCert}'.`);
     }
   };
 
@@ -75,7 +93,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
     setRecords([]);
   };
 
-  // UNAUTHENTICATED: PATIENT LOGIN SHIELD (Birth Certificate Number Only)
+  // UNAUTHENTICATED: PATIENT LOGIN SHIELD
   if (!isLoggedIn || !patientProfile) {
     return (
       <div className="max-w-md mx-auto py-12 animate-fadeIn space-y-6">
@@ -128,7 +146,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
           </form>
 
           <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500 text-left">
-            <span>Demo Birth Certificate Numbers:</span>
+            <span>Demo Registered Birth Certificate Numbers:</span>
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               <button
                 onClick={() => {
@@ -137,7 +155,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
                 }}
                 className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
               >
-                BC-2080-94812
+                Ram Kumar (BC-2080-94812)
               </button>
               <button
                 onClick={() => {
@@ -146,7 +164,16 @@ export default function CitizenPortal({ healthId, setHealthId }) {
                 }}
                 className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
               >
-                BC-2080-84910
+                Sita Kumari (BC-2080-84910)
+              </button>
+              <button
+                onClick={() => {
+                  setBirthCertInput("BC-2080-73920");
+                  handlePatientLogin("BC-2080-73920");
+                }}
+                className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
+              >
+                Aayush Nepal (BC-2080-73920)
               </button>
             </div>
           </div>
