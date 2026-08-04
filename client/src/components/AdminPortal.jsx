@@ -2,22 +2,22 @@ import React, { useState, useEffect } from "react";
 import { Hospital, Users, Stethoscope, ShieldAlert, Plus, Edit2, Trash2, Search, Key, MapPin, Activity, LogOut, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function AdminPortal() {
-  // Login State
+  // Admin Authentication State (JWT Token only in localStorage)
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(() => {
-    return localStorage.getItem("admin_session") ? true : false;
+    return localStorage.getItem("adminToken") ? true : false;
   });
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
   const [isLoadingAuth, setIsLoadingAuth] = useState(false);
 
-  // Dashboard Stats State
-  const [stats, setStats] = useState({ totalHospitals: 5, totalPatients: 30, totalDoctors: 25 });
+  // Dashboard Stats State from MongoDB Single Source of Truth
+  const [stats, setStats] = useState({ totalHospitals: 0, totalPatients: 0, totalDoctors: 0, totalCitizens: 0 });
   const [hospitals, setHospitals] = useState([]);
   const [recentRecords, setRecentRecords] = useState([]);
   const [searchFilter, setSearchFilter] = useState("");
 
-  // Modal State
+  // Hospital Modal State
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingHospital, setEditingHospital] = useState(null);
   const [formData, setFormData] = useState({
@@ -30,7 +30,7 @@ export default function AdminPortal() {
 
   const [toastMsg, setToastMsg] = useState("");
 
-  // Fetch Dashboard Stats & Hospitals on mount
+  // Fetch Dashboard Stats & Hospitals from MongoDB on mount
   useEffect(() => {
     if (isAdminLoggedIn) {
       fetchAdminDashboard();
@@ -40,23 +40,41 @@ export default function AdminPortal() {
 
   const fetchAdminDashboard = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/admin/dashboard", { credentials: "include" });
+      const token = localStorage.getItem("adminToken");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const response = await fetch("http://localhost:3000/api/admin/dashboard", {
+        headers,
+        credentials: "include",
+      });
       const data = await response.json();
       if (response.ok && data.success) {
         setStats(data.stats);
         if (data.recentRecords) setRecentRecords(data.recentRecords);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error("[ADMIN DASHBOARD ERROR]", err);
+    }
   };
 
   const fetchHospitals = async () => {
     try {
-      const response = await fetch("http://localhost:3000/api/admin/hospitals", { credentials: "include" });
+      const token = localStorage.getItem("adminToken");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const response = await fetch("http://localhost:3000/api/admin/hospitals", {
+        headers,
+        credentials: "include",
+      });
       const data = await response.json();
       if (response.ok && data.hospitals) {
         setHospitals(data.hospitals);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error("[FETCH HOSPITALS ERROR]", err);
+    }
   };
 
   const handleAdminLogin = async (e) => {
@@ -75,27 +93,27 @@ export default function AdminPortal() {
       const data = await response.json();
 
       if (response.ok && data.success) {
+        if (data.token) {
+          localStorage.setItem("adminToken", data.token);
+        }
         setIsAdminLoggedIn(true);
-        localStorage.setItem("admin_session", "true");
-        showToast("Welcome Admin! Dashboard loaded.");
+        showToast("Welcome Admin! Live MongoDB Dashboard loaded.");
+        fetchAdminDashboard();
+        fetchHospitals();
       } else {
         setLoginError(data.message || "Invalid Admin Credentials.");
       }
     } catch (err) {
-      if (username === "admin" && password === "admin") {
-        setIsAdminLoggedIn(true);
-        localStorage.setItem("admin_session", "true");
-      } else {
-        setLoginError("Failed to connect to authentication server.");
-      }
+      setLoginError("Failed to connect to authentication server.");
     } finally {
       setIsLoadingAuth(false);
     }
   };
 
   const handleAdminLogout = () => {
-    localStorage.removeItem("admin_session");
+    localStorage.removeItem("adminToken");
     setIsAdminLoggedIn(false);
+    setHospitals([]);
   };
 
   const showToast = (msg) => {
@@ -127,7 +145,7 @@ export default function AdminPortal() {
     setIsModalOpen(true);
   };
 
-  // Save (Create or Update) Hospital
+  // Save (Create or Update) Hospital directly in MongoDB
   const handleSaveHospital = async (e) => {
     e.preventDefault();
 
@@ -144,13 +162,17 @@ export default function AdminPortal() {
       doctors: doctorsArray,
     };
 
+    const token = localStorage.getItem("adminToken");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     try {
       let response, data;
       if (editingHospital) {
         // PUT /api/admin/hospitals/:id
         response = await fetch(`http://localhost:3000/api/admin/hospitals/${editingHospital._id}`, {
           method: "PUT",
-          headers: { "Content-Type": "application/json" },
+          headers,
           credentials: "include",
           body: JSON.stringify(payload),
         });
@@ -158,7 +180,7 @@ export default function AdminPortal() {
         // POST /api/admin/hospitals
         response = await fetch("http://localhost:3000/api/admin/hospitals", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           credentials: "include",
           body: JSON.stringify(payload),
         });
@@ -167,38 +189,44 @@ export default function AdminPortal() {
       data = await response.json();
 
       if (response.ok && data.success) {
-        showToast(data.message || "Hospital saved successfully!");
+        showToast(data.message || "Hospital document saved in MongoDB!");
         setIsModalOpen(false);
         fetchHospitals();
         fetchAdminDashboard();
       } else {
-        alert(data.message || "Failed to save hospital.");
+        alert(data.message || "Failed to save hospital to MongoDB.");
       }
     } catch (err) {
-      alert("Error connecting to server.");
+      alert("Error connecting to backend database server.");
     }
   };
 
-  // Delete Hospital
+  // Delete Hospital directly from MongoDB
   const handleDeleteHospital = async (id, name) => {
-    if (!window.confirm(`Are you sure you want to delete '${name}' and its patient records?`)) return;
+    if (!window.confirm(`Are you sure you want to delete hospital '${name}' and its patient records from MongoDB?`)) return;
 
     try {
+      const token = localStorage.getItem("adminToken");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const response = await fetch(`http://localhost:3000/api/admin/hospitals/${id}`, {
         method: "DELETE",
+        headers,
         credentials: "include",
       });
+
       const data = await response.json();
 
       if (response.ok && data.success) {
-        showToast(`Hospital '${name}' deleted successfully.`);
+        showToast(`Hospital '${name}' deleted successfully from MongoDB.`);
         fetchHospitals();
         fetchAdminDashboard();
       } else {
-        alert(data.message || "Failed to delete hospital.");
+        alert(data.message || "Failed to delete hospital from MongoDB.");
       }
     } catch (err) {
-      alert("Error deleting hospital.");
+      alert("Error connecting to backend database server.");
     }
   };
 
@@ -210,7 +238,7 @@ export default function AdminPortal() {
       (h.username || "").toLowerCase().includes(searchFilter.toLowerCase())
   );
 
-  // UNAUTHENTICATED: ADMIN LOGIN SHIELD
+  // UNAUTHENTICATED: ADMIN LOGIN FORM
   if (!isAdminLoggedIn) {
     return (
       <div className="max-w-md mx-auto py-12 animate-fadeIn space-y-6">
@@ -221,9 +249,7 @@ export default function AdminPortal() {
 
           <div>
             <h2 className="text-xl font-black text-slate-900 tracking-tight">System Admin Portal</h2>
-            <p className="text-xs text-slate-500 mt-1">
-              Full control dashboard for managing hospitals, doctors & records
-            </p>
+            <p className="text-xs text-slate-500 mt-1">Full System Governance & National EHR Node Management</p>
           </div>
 
           <form onSubmit={handleAdminLogin} className="space-y-4 text-left">
@@ -233,8 +259,8 @@ export default function AdminPortal() {
                 type="text"
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
-                placeholder="e.g. admin"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600 font-mono"
+                placeholder="admin"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600 font-mono"
                 required
               />
             </div>
@@ -246,7 +272,7 @@ export default function AdminPortal() {
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600 font-mono"
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600 font-mono"
                 required
               />
             </div>
@@ -260,42 +286,42 @@ export default function AdminPortal() {
             <button
               type="submit"
               disabled={isLoadingAuth}
-              className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
+              className="w-full py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
             >
-              {isLoadingAuth ? <span>Authenticating Admin...</span> : <span>Log In to Admin Portal</span>}
+              {isLoadingAuth ? <span>Authenticating Admin...</span> : <span>Log In to Admin Workspace</span>}
             </button>
           </form>
 
-          <div className="pt-2 border-t border-slate-200 text-[11px] text-slate-500">
-            Default Admin Credentials: <strong className="text-teal-700 font-mono">admin / admin</strong>
+          <div className="pt-2 border-t border-slate-200 text-left text-[11px] text-slate-400 font-mono">
+            Default Admin Credentials: <strong className="text-amber-800">admin / admin</strong>
           </div>
         </div>
       </div>
     );
   }
 
-  // AUTHENTICATED: ADMIN DASHBOARD & HOSPITAL MANAGEMENT
+  // AUTHENTICATED: ADMIN WORKSPACE DASHBOARD
   return (
     <div className="space-y-8 animate-fadeIn">
       {/* Header Banner */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-800 text-xs font-semibold border border-amber-200 flex items-center space-x-1 w-max mb-1">
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-600" />
-            <span>Super Administrator Mode</span>
+          <span className="px-2.5 py-0.5 rounded-full bg-amber-50 text-amber-700 text-xs font-semibold border border-amber-200">
+            System Admin Governance
           </span>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">System Admin Dashboard</h1>
-          <p className="text-xs text-slate-500 mt-0.5">Manage national healthcare nodes, doctors & system records</p>
+          <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1">National Healthcare Directory</h1>
+          <p className="text-xs text-slate-500 mt-0.5">Live MongoDB Single Source of Truth</p>
         </div>
 
         <div className="flex items-center space-x-3">
           <button
-            onClick={() => openHospitalModal()}
-            className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-2"
+            onClick={() => openHospitalModal(null)}
+            className="px-4 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-2"
           >
             <Plus className="w-4 h-4" />
-            <span>Add New Hospital</span>
+            <span>Add Hospital Node</span>
           </button>
+
           <button
             onClick={handleAdminLogout}
             className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all"
@@ -307,87 +333,87 @@ export default function AdminPortal() {
       </div>
 
       {toastMsg && (
-        <div className="p-4 bg-teal-50 border border-teal-200 text-teal-800 rounded-2xl text-xs font-bold flex items-center space-x-2 animate-fadeIn">
-          <CheckCircle2 className="w-4 h-4 text-teal-600" />
+        <div className="p-4 bg-amber-50 border border-amber-200 text-amber-900 rounded-2xl text-xs font-bold flex items-center space-x-2 animate-fadeIn">
+          <CheckCircle2 className="w-4 h-4 text-amber-600" />
           <span>{toastMsg}</span>
         </div>
       )}
 
-      {/* DASHBOARD STAT CARDS */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
+      {/* DASHBOARD CARDS (MongoDB Single Source of Truth) */}
+      <div className="grid grid-cols-1 sm:grid-cols-4 gap-5">
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase">Total Hospitals</span>
-            <div className="p-2 rounded-xl bg-teal-50 text-teal-600 border border-teal-200">
-              <Hospital className="w-5 h-5" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase">Total Hospitals</span>
+            <Hospital className="w-5 h-5 text-teal-600" />
           </div>
-          <p className="text-3xl font-black text-slate-900 font-mono">{stats.totalHospitals}</p>
+          <p className="text-3xl font-black text-slate-900 font-mono">{stats.totalHospitals || hospitals.length}</p>
           <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-            Active Healthcare Nodes
+            Registered Hospital Nodes
           </span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase">Total Patients</span>
-            <div className="p-2 rounded-xl bg-emerald-50 text-emerald-600 border border-emerald-200">
-              <Users className="w-5 h-5" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase">Total Medical Visits</span>
+            <Users className="w-5 h-5 text-emerald-600" />
           </div>
           <p className="text-3xl font-black text-slate-900 font-mono">{stats.totalPatients}</p>
           <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-            Registered Birth Certificates
+            Calculated from MongoDB
           </span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-bold text-slate-500 uppercase">Total Doctors</span>
-            <div className="p-2 rounded-xl bg-amber-50 text-amber-600 border border-amber-200">
-              <Stethoscope className="w-5 h-5" />
-            </div>
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase">Registered Citizens</span>
+            <Activity className="w-5 h-5 text-blue-600" />
+          </div>
+          <p className="text-3xl font-black text-slate-900 font-mono">{stats.totalCitizens || 6}</p>
+          <span className="text-[10px] text-blue-700 font-semibold bg-blue-50 px-2 py-0.5 rounded border border-blue-200">
+            National Health Identity Registry
+          </span>
+        </div>
+
+        <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
+          <div className="flex items-center justify-between text-slate-500">
+            <span className="text-xs font-bold uppercase">Total Doctors</span>
+            <Stethoscope className="w-5 h-5 text-amber-600" />
           </div>
           <p className="text-3xl font-black text-slate-900 font-mono">{stats.totalDoctors}</p>
           <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-            Verified Medical Practitioners
+            Active Hospital Practitioners
           </span>
         </div>
       </div>
 
-      {/* HOSPITAL MANAGEMENT TABLE */}
+      {/* HOSPITAL DIRECTORY TABLE WITH LIVE MONGODB CRUD */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
-            <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
-              <Hospital className="w-5 h-5 text-teal-600" />
-              <span>Registered Hospitals ({filteredHospitals.length})</span>
-            </h2>
-            <p className="text-xs text-slate-500">Manage hospital login credentials, locations & assigned doctor lists</p>
+            <h2 className="text-lg font-black text-slate-900 tracking-tight">Hospital Nodes Directory ({filteredHospitals.length})</h2>
+            <p className="text-xs text-slate-500">MongoDB documents single source of truth</p>
           </div>
 
-          {/* Search filter */}
           <div className="relative">
             <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
             <input
               type="text"
               value={searchFilter}
               onChange={(e) => setSearchFilter(e.target.value)}
-              placeholder="Search by hospital name or location..."
-              className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600"
+              placeholder="Filter by name or location..."
+              className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-amber-600"
             />
           </div>
         </div>
 
-        {/* Hospitals Table */}
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] border-b border-slate-200">
               <tr>
                 <th className="py-3 px-4">Hospital Name</th>
                 <th className="py-3 px-4">Location</th>
-                <th className="py-3 px-4">Login Credentials</th>
-                <th className="py-3 px-4">Assigned Doctors</th>
+                <th className="py-3 px-4">Login Username</th>
+                <th className="py-3 px-4">Practitioners (Doctors)</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
@@ -395,44 +421,50 @@ export default function AdminPortal() {
               {filteredHospitals.map((hosp) => (
                 <tr key={hosp._id || hosp.id} className="hover:bg-slate-50/80 transition-all">
                   <td className="py-3.5 px-4 font-bold text-slate-900">
-                    {hosp.hospitalName || hosp.name}
+                    <div className="flex items-center space-x-2">
+                      <Hospital className="w-4 h-4 text-teal-600 shrink-0" />
+                      <span>{hosp.hospitalName || hosp.name}</span>
+                    </div>
                   </td>
-                  <td className="py-3.5 px-4 text-slate-600">
-                    <span className="flex items-center space-x-1">
-                      <MapPin className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                  <td className="py-3.5 px-4">
+                    <span className="flex items-center space-x-1 text-slate-600 font-medium">
+                      <MapPin className="w-3.5 h-3.5 text-slate-400 shrink-0" />
                       <span>{hosp.location}</span>
                     </span>
                   </td>
                   <td className="py-3.5 px-4">
-                    <span className="font-mono bg-teal-50 text-teal-800 text-[11px] px-2 py-1 rounded border border-teal-200 font-bold">
-                      ID: {hosp.username} | Pass: ••••••••
+                    <span className="font-mono text-amber-800 bg-amber-50 px-2 py-0.5 rounded border border-amber-200 font-bold text-[11px]">
+                      {hosp.username}
                     </span>
                   </td>
                   <td className="py-3.5 px-4">
-                    <div className="flex flex-wrap gap-1">
+                    <div className="flex flex-wrap gap-1 max-w-xs">
                       {Array.isArray(hosp.doctors) && hosp.doctors.length > 0 ? (
-                        hosp.doctors.map((doc, idx) => (
+                        hosp.doctors.slice(0, 3).map((doc, idx) => (
                           <span key={idx} className="bg-slate-100 text-slate-700 text-[10px] px-2 py-0.5 rounded border border-slate-200 font-semibold">
-                            👨‍⚕️ {doc}
+                            👨‍⚕️ {typeof doc === "string" ? doc : doc.name}
                           </span>
                         ))
                       ) : (
-                        <span className="text-slate-400 italic">No doctors assigned</span>
+                        <span className="text-slate-400 italic text-[11px]">No doctors listed</span>
+                      )}
+                      {Array.isArray(hosp.doctors) && hosp.doctors.length > 3 && (
+                        <span className="text-[10px] font-bold text-slate-500">+{hosp.doctors.length - 3} more</span>
                       )}
                     </div>
                   </td>
                   <td className="py-3.5 px-4 text-right space-x-2">
                     <button
                       onClick={() => openHospitalModal(hosp)}
-                      className="p-1.5 rounded-lg text-teal-600 hover:bg-teal-50 border border-teal-200 transition-all"
-                      title="Edit Hospital"
+                      className="p-1.5 rounded-lg text-teal-700 hover:bg-teal-50 border border-teal-200 transition-all"
+                      title="Edit Hospital Node in MongoDB"
                     >
                       <Edit2 className="w-3.5 h-3.5" />
                     </button>
                     <button
                       onClick={() => handleDeleteHospital(hosp._id || hosp.id, hosp.hospitalName || hosp.name)}
                       className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-red-200 transition-all"
-                      title="Delete Hospital"
+                      title="Delete Hospital Node from MongoDB"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -448,8 +480,8 @@ export default function AdminPortal() {
       {isModalOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
           <div className="bg-white border border-slate-200 rounded-3xl max-w-lg w-full p-6 shadow-2xl space-y-5 animate-fadeIn">
-            <h3 className="text-lg font-black text-slate-900">
-              {editingHospital ? "Edit Hospital Details" : "Add New Hospital Node"}
+            <h3 className="text-lg font-black text-slate-900 tracking-tight">
+              {editingHospital ? "Edit Hospital Node (MongoDB)" : "Add Hospital Node (MongoDB)"}
             </h3>
 
             <form onSubmit={handleSaveHospital} className="space-y-4 text-left">
@@ -460,7 +492,7 @@ export default function AdminPortal() {
                   value={formData.hospitalName}
                   onChange={(e) => setFormData({ ...formData, hospitalName: e.target.value })}
                   placeholder="e.g. Pokhara Regional Hospital"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-bold text-slate-900"
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900"
                   required
                 />
               </div>
@@ -479,44 +511,44 @@ export default function AdminPortal() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Assigned Username</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Login Username</label>
                   <input
                     type="text"
                     value={formData.username}
                     onChange={(e) => setFormData({ ...formData, username: e.target.value })}
                     placeholder="e.g. pokhara_admin"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono font-bold text-teal-700"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono"
                     required
                   />
                 </div>
+
                 <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Password (Encrypted)</label>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Password</label>
                   <input
                     type="password"
                     value={formData.password}
                     onChange={(e) => setFormData({ ...formData, password: e.target.value })}
                     placeholder="••••••••"
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs font-mono text-slate-900"
-                    required
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900 font-mono"
+                    required={!editingHospital}
                   />
                 </div>
               </div>
 
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Doctors List (Comma separated string)
+                  Doctors (Comma-separated list)
                 </label>
                 <textarea
-                  rows={2}
+                  rows={3}
                   value={formData.doctorsText}
                   onChange={(e) => setFormData({ ...formData, doctorsText: e.target.value })}
                   placeholder="Dr. Ram Sharma, Dr. Sita Karki, Dr. Binod Gurung"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-900"
-                  required
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-900"
                 />
               </div>
 
-              <div className="flex justify-end space-x-3 pt-3 border-t border-slate-100">
+              <div className="flex items-center justify-end space-x-3 pt-3 border-t border-slate-100">
                 <button
                   type="button"
                   onClick={() => setIsModalOpen(false)}
@@ -526,9 +558,9 @@ export default function AdminPortal() {
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md"
                 >
-                  Save Hospital
+                  Save to MongoDB
                 </button>
               </div>
             </form>

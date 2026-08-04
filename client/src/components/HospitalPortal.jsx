@@ -1,60 +1,101 @@
 import React, { useState, useEffect } from "react";
 import ReportUploadModal from "./ReportUploadModal";
 import NewbornRegistrationModal from "./NewbornRegistrationModal";
-import Timeline from "./Timeline";
 import { Search, PlusCircle, Baby, Hospital, UserCheck, ShieldCheck, Stethoscope, LogOut, Edit2, Trash2, Calendar, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function HospitalPortal({ healthId, setHealthId }) {
-  // Hospital Login State
-  const [activeHospital, setActiveHospital] = useState(() => {
-    const saved = localStorage.getItem("hospital_session");
-    return saved ? JSON.parse(saved) : null;
-  });
-
+  // Hospital Auth State (Only JWT Token allowed in localStorage)
+  const [activeHospital, setActiveHospital] = useState(null);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [loginError, setLoginError] = useState("");
-  const [isLoadingAuth, setIsLoadingAuth] = useState(false);
+  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
 
-  // Hospital Dashboard & Patient Data
+  // Hospital Dashboard & Patient Data from MongoDB
   const [patients, setPatients] = useState([]);
   const [doctorList, setDoctorList] = useState([]);
   const [searchQuery, setSearchQuery] = useState("");
 
-  // Modal States
+  // Modal & Edit States
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
   const [isNewbornModalOpen, setIsNewbornModalOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
 
+  // On mount, verify hospital session via GET /api/hospital/profile
   useEffect(() => {
-    if (activeHospital) {
-      fetchHospitalPatients();
-      fetchHospitalDoctors();
-    }
-  }, [activeHospital]);
+    fetchHospitalProfile();
+  }, []);
 
-  const fetchHospitalPatients = async () => {
+  const fetchHospitalProfile = async () => {
+    setIsLoadingAuth(true);
     try {
-      const response = await fetch("http://localhost:3000/api/patients", { credentials: "include" });
+      const token = localStorage.getItem("hospitalToken");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
+      const response = await fetch("http://localhost:3000/api/hospital/profile", {
+        headers,
+        credentials: "include",
+      });
+
       const data = await response.json();
-      if (response.ok && data.patients) {
-        setPatients(data.patients);
+
+      if (response.ok && data.hospital) {
+        setActiveHospital(data.hospital);
+        fetchHospitalPatients(token);
+        fetchHospitalDoctors(token);
+      } else {
+        setActiveHospital(null);
       }
-    } catch (err) {}
+    } catch (err) {
+      setActiveHospital(null);
+    } finally {
+      setIsLoadingAuth(false);
+    }
   };
 
-  const fetchHospitalDoctors = async () => {
+  const fetchHospitalPatients = async (token = null) => {
     try {
-      const response = await fetch("http://localhost:3000/api/hospital/doctors", { credentials: "include" });
+      const activeToken = token || localStorage.getItem("hospitalToken");
+      const headers = { "Content-Type": "application/json" };
+      if (activeToken) headers["Authorization"] = `Bearer ${activeToken}`;
+
+      const response = await fetch("http://localhost:3000/api/patients", {
+        headers,
+        credentials: "include",
+      });
+
       const data = await response.json();
-      if (response.ok && data.doctors) {
+      if (response.ok && Array.isArray(data.patients)) {
+        setPatients(data.patients);
+      }
+    } catch (err) {
+      console.error("[FETCH PATIENTS ERROR]", err);
+    }
+  };
+
+  const fetchHospitalDoctors = async (token = null) => {
+    try {
+      const activeToken = token || localStorage.getItem("hospitalToken");
+      const headers = { "Content-Type": "application/json" };
+      if (activeToken) headers["Authorization"] = `Bearer ${activeToken}`;
+
+      const response = await fetch("http://localhost:3000/api/hospital/doctors", {
+        headers,
+        credentials: "include",
+      });
+
+      const data = await response.json();
+      if (response.ok && Array.isArray(data.doctors)) {
         setDoctorList(data.doctors);
       }
-    } catch (err) {}
+    } catch (err) {
+      console.error("[FETCH DOCTORS ERROR]", err);
+    }
   };
 
   const handleHospitalLogin = async (e) => {
-    e.preventDefault();
+    if (e) e.preventDefault();
     setIsLoadingAuth(true);
     setLoginError("");
 
@@ -68,10 +109,14 @@ export default function HospitalPortal({ healthId, setHealthId }) {
 
       const data = await response.json();
 
-      if (response.ok && data.success) {
+      if (response.ok && data.success && data.hospital) {
+        if (data.token) {
+          localStorage.setItem("hospitalToken", data.token);
+        }
         setActiveHospital(data.hospital);
-        localStorage.setItem("hospital_session", JSON.stringify(data.hospital));
         showToast(`Welcome to ${data.hospital.hospitalName || data.hospital.name}!`);
+        fetchHospitalPatients(data.token);
+        fetchHospitalDoctors(data.token);
       } else {
         setLoginError(data.message || "Invalid Hospital Username or Password.");
       }
@@ -85,11 +130,28 @@ export default function HospitalPortal({ healthId, setHealthId }) {
   const handle1ClickLogin = (user, pass) => {
     setUsername(user);
     setPassword(pass);
-    handleHospitalLogin({ preventDefault: () => {} });
+    setTimeout(() => {
+      fetch("http://localhost:3000/api/hospital/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ username: user, password: pass }),
+      })
+        .then((res) => res.json())
+        .then((data) => {
+          if (data.success && data.hospital) {
+            if (data.token) localStorage.setItem("hospitalToken", data.token);
+            setActiveHospital(data.hospital);
+            showToast(`Welcome to ${data.hospital.hospitalName || data.hospital.name}!`);
+            fetchHospitalPatients(data.token);
+            fetchHospitalDoctors(data.token);
+          }
+        });
+    }, 100);
   };
 
   const handleHospitalLogout = () => {
-    localStorage.removeItem("hospital_session");
+    localStorage.removeItem("hospitalToken");
     setActiveHospital(null);
     setPatients([]);
   };
@@ -99,34 +161,48 @@ export default function HospitalPortal({ healthId, setHealthId }) {
     setTimeout(() => setToastMsg(""), 3500);
   };
 
-  const handleDeletePatient = async (id, patientName) => {
-    if (!window.confirm(`Are you sure you want to delete medical record for '${patientName}'?`)) return;
+  const handleDeletePatient = async (id, certNumber) => {
+    if (!window.confirm(`Are you sure you want to delete medical record for '${certNumber}' from MongoDB?`)) return;
 
     try {
+      const token = localStorage.getItem("hospitalToken");
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
+
       const response = await fetch(`http://localhost:3000/api/patients/${id}`, {
         method: "DELETE",
+        headers,
         credentials: "include",
       });
+
       const data = await response.json();
 
       if (response.ok && data.success) {
-        showToast(`Medical record deleted successfully.`);
+        showToast(`Medical record deleted from MongoDB.`);
         fetchHospitalPatients();
       } else {
-        alert(data.message || "Failed to delete patient record.");
+        alert(data.message || "Failed to delete patient record from MongoDB.");
       }
     } catch (err) {
-      alert("Error deleting patient record.");
+      alert("Error connecting to backend database server.");
     }
   };
 
-  // Filtered Patients List
+  // Filtered Patients List from MongoDB state
   const filteredPatients = patients.filter(
     (p) =>
       (p.citizenId?.fullName || p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.birthCertificateNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.assignedDoctor?.toLowerCase().includes(searchQuery.toLowerCase())
   );
+
+  if (isLoadingAuth) {
+    return (
+      <div className="py-16 text-center text-slate-500 font-semibold text-xs animate-fadeIn">
+        Authenticating Hospital Workspace from MongoDB...
+      </div>
+    );
+  }
 
   // UNAUTHENTICATED: HOSPITAL LOGIN SHIELD
   if (!activeHospital) {
@@ -180,7 +256,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
               disabled={isLoadingAuth}
               className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
             >
-              {isLoadingAuth ? <span>Authenticating Hospital...</span> : <span>Log In to Hospital Node</span>}
+              <span>Log In to Hospital Node</span>
             </button>
           </form>
 
@@ -233,7 +309,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
             </span>
             {doctorList.map((doc, idx) => (
               <span key={idx} className="bg-emerald-50 text-emerald-800 text-[11px] px-2 py-0.5 rounded border border-emerald-200 font-bold">
-                👨‍⚕️ {doc}
+                👨‍⚕️ {typeof doc === "string" ? doc : doc.name}
               </span>
             ))}
           </div>
@@ -274,13 +350,13 @@ export default function HospitalPortal({ healthId, setHealthId }) {
         </div>
       )}
 
-      {/* DASHBOARD STATS */}
+      {/* DASHBOARD STATS (MongoDB Single Source of Truth) */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
           <span className="text-xs font-bold text-slate-500 uppercase">Total Medical Visits</span>
           <p className="text-3xl font-black text-slate-900 font-mono">{patients.length}</p>
           <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-            Linked to Citizen Repository
+            Calculated from MongoDB
           </span>
         </div>
 
@@ -288,7 +364,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
           <span className="text-xs font-bold text-slate-500 uppercase">Active Doctors</span>
           <p className="text-3xl font-black text-slate-900 font-mono">{doctorList.length}</p>
           <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
-            Hospital Practitioner Roster
+            Hospital Doctor Roster
           </span>
         </div>
 
@@ -309,7 +385,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
               <UserCheck className="w-5 h-5 text-teal-600" />
               <span>Patient Medical Records ({filteredPatients.length})</span>
             </h2>
-            <p className="text-xs text-slate-500">Normalized records linked to Citizen Health IDs</p>
+            <p className="text-xs text-slate-500">Live MongoDB documents linked to Citizen Health IDs</p>
           </div>
 
           <div className="relative">
@@ -362,7 +438,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
                     <button
                       onClick={() => handleDeletePatient(pat._id || pat.id, pat.birthCertificateNumber)}
                       className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-red-200 transition-all"
-                      title="Delete Record"
+                      title="Delete Record from MongoDB"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -379,7 +455,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
         isOpen={isNewbornModalOpen}
         onClose={() => setIsNewbornModalOpen(false)}
         onRegisterSuccess={(newborn) => {
-          showToast(`Newborn '${newborn.fullName}' successfully registered with Health ID '${newborn.healthId}'!`);
+          showToast(`Newborn '${newborn.fullName}' successfully registered in MongoDB!`);
         }}
       />
 
@@ -389,7 +465,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
         onClose={() => setIsAssignModalOpen(false)}
         onAddReport={(newPat) => {
           fetchHospitalPatients();
-          showToast("Medical record created successfully!");
+          showToast("Medical record saved to MongoDB successfully!");
         }}
         healthId={healthId}
       />

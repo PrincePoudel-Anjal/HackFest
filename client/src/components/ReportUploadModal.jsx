@@ -2,18 +2,7 @@ import React, { useState, useEffect } from "react";
 import { X, FilePlus, Stethoscope, User, Hospital, AlertCircle, CheckCircle2, Search, Lock, HeartPulse, FileText } from "lucide-react";
 
 export default function ReportUploadModal({ isOpen, onClose, onAddReport, healthId }) {
-  // Read active hospital session
-  const [activeHospitalName, setActiveHospitalName] = useState(() => {
-    const saved = localStorage.getItem("hospital_session");
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return parsed.name || "GMC EHR Portal";
-      } catch (e) {}
-    }
-    return "GMC EHR Portal";
-  });
-
+  const [activeHospitalName, setActiveHospitalName] = useState("Hospital Clinical Portal");
   const [doctorList, setDoctorList] = useState([]);
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
 
@@ -35,24 +24,33 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
   const [errorMsg, setErrorMsg] = useState("");
   const [successMsg, setSuccessMsg] = useState("");
 
-  // Fetch doctors belonging to currently logged-in hospital on open
+  // Fetch hospital profile and doctors directly from MongoDB backend API
   useEffect(() => {
     if (isOpen) {
       setErrorMsg("");
       setSuccessMsg("");
       setSearchError("");
 
-      const fetchHospitalDoctors = async () => {
+      const fetchHospitalProfileAndDoctors = async () => {
         setIsLoadingDoctors(true);
         try {
-          const response = await fetch("http://localhost:3000/api/hospital/doctors", {
-            method: "GET",
-            credentials: "include",
-          });
-          const data = await response.json();
-          if (response.ok && data.doctors && data.doctors.length > 0) {
-            setDoctorList(data.doctors);
-            setAssignedDoctor(data.doctors[0]);
+          const token = localStorage.getItem("hospitalToken");
+          const headers = { "Content-Type": "application/json" };
+          if (token) headers["Authorization"] = `Bearer ${token}`;
+
+          // Profile
+          const profRes = await fetch("http://localhost:3000/api/hospital/profile", { headers, credentials: "include" });
+          const profData = await profRes.json();
+          if (profRes.ok && profData.hospital) {
+            setActiveHospitalName(profData.hospital.hospitalName || profData.hospital.name);
+          }
+
+          // Doctors
+          const docRes = await fetch("http://localhost:3000/api/hospital/doctors", { headers, credentials: "include" });
+          const docData = await docRes.json();
+          if (docRes.ok && docData.doctors && docData.doctors.length > 0) {
+            setDoctorList(docData.doctors);
+            setAssignedDoctor(typeof docData.doctors[0] === "string" ? docData.doctors[0] : docData.doctors[0].name);
           } else {
             const fallbackDocs = ["Dr. Ram Sharma", "Dr. Sita Karki", "Dr. Binod Gurung"];
             setDoctorList(fallbackDocs);
@@ -67,9 +65,9 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
         }
       };
 
-      fetchHospitalDoctors();
+      fetchHospitalProfileAndDoctors();
 
-      // Trigger automatic lookup if healthId passed
+      // Automatic lookup if healthId passed
       if (healthId) {
         handleCitizenLookup(healthId);
       } else {
@@ -127,6 +125,10 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
       return;
     }
 
+    const token = localStorage.getItem("hospitalToken");
+    const headers = { "Content-Type": "application/json" };
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+
     const payload = {
       birthCertificateNumber: foundCitizen.birthCertificateNumber,
       symptoms: symptoms.trim(),
@@ -140,7 +142,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
     try {
       const response = await fetch("http://localhost:3000/api/patients", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers,
         credentials: "include",
         body: JSON.stringify(payload),
       });
@@ -148,14 +150,14 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
       const data = await response.json();
 
       if (response.ok && data.success) {
-        setSuccessMsg(data.message || `Medical record for '${foundCitizen.fullName}' saved successfully!`);
-        if (onAddReport) onAddReport(data.patient);
+        setSuccessMsg(data.message || `Medical record for '${foundCitizen.fullName}' saved to MongoDB successfully!`);
+        if (onAddReport) onAddReport(data.patient || data.medicalRecord);
 
         setTimeout(() => {
           onClose();
         }, 1200);
       } else {
-        setErrorMsg(data.message || "Failed to save medical record.");
+        setErrorMsg(data.message || "Failed to save medical record to MongoDB.");
       }
     } catch (err) {
       setErrorMsg("Error connecting to backend database server.");
@@ -258,8 +260,8 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
                   </h4>
                 </div>
                 <span className="text-[10px] font-bold text-emerald-800 bg-white px-2 py-0.5 rounded border border-emerald-200 flex items-center space-x-1">
-                  <Lock className="w-3 h-3 text-emerald-600" />
-                  <span>Auto-filled from Database</span>
+                  <Lock className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>Auto-filled from MongoDB</span>
                 </span>
               </div>
 
@@ -324,9 +326,9 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
                       disabled={!foundCitizen}
                       required
                     >
-                      {doctorList.map((docName, idx) => (
-                        <option key={idx} value={docName}>
-                          👨‍⚕️ {docName}
+                      {doctorList.map((doc, idx) => (
+                        <option key={idx} value={typeof doc === "string" ? doc : doc.name}>
+                          👨‍⚕️ {typeof doc === "string" ? doc : doc.name}
                         </option>
                       ))}
                     </select>

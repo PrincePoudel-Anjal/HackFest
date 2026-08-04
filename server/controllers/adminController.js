@@ -1,7 +1,8 @@
 const Admin = require("../models/Admin");
 const Hospital = require("../models/Hospital");
 const Patient = require("../models/Patient");
-const Doctor = require("../models/Doctor");
+const MedicalRecord = require("../models/MedicalRecord");
+const Citizen = require("../models/Citizen");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
 
@@ -59,12 +60,13 @@ exports.adminLogin = async (req, res, next) => {
 
 /**
  * @desc    GET /api/admin/dashboard
- *          Returns total hospitals, total patients, total doctors, and recent records
+ *          Calculates counts dynamically from MongoDB single source of truth
  */
 exports.getAdminDashboard = async (req, res, next) => {
   try {
     const totalHospitals = await Hospital.countDocuments();
-    const totalPatients = await Patient.countDocuments();
+    const totalPatients = await MedicalRecord.countDocuments();
+    const totalCitizens = await Citizen.countDocuments();
 
     // Calculate total doctors across all hospital documents
     const hospitals = await Hospital.find();
@@ -73,16 +75,18 @@ exports.getAdminDashboard = async (req, res, next) => {
       totalDoctors += Array.isArray(h.doctors) ? h.doctors.length : 0;
     });
 
-    const recentRecords = await Patient.find()
+    const recentRecords = await MedicalRecord.find()
       .sort({ createdAt: -1 })
       .limit(10)
-      .populate("hospitalId", "hospitalName location");
+      .populate("hospitalId", "hospitalName location")
+      .populate("citizenId", "fullName dob gender bloodGroup");
 
     return res.status(200).json({
       success: true,
       stats: {
         totalHospitals,
         totalPatients,
+        totalCitizens,
         totalDoctors,
       },
       recentRecords,
@@ -125,7 +129,7 @@ exports.getAdminDoctors = async (req, res, next) => {
 };
 
 /**
- * @desc    POST /api/admin/hospitals - Create Hospital
+ * @desc    POST /api/admin/hospitals - Create Hospital in MongoDB
  */
 exports.createHospital = async (req, res, next) => {
   try {
@@ -183,7 +187,7 @@ exports.createHospital = async (req, res, next) => {
 
     return res.status(201).json({
       success: true,
-      message: `Hospital '${newHospital.hospitalName}' created successfully!`,
+      message: `Hospital '${newHospital.hospitalName}' created successfully in MongoDB!`,
       hospital: newHospital,
     });
   } catch (error) {
@@ -192,7 +196,7 @@ exports.createHospital = async (req, res, next) => {
 };
 
 /**
- * @desc    GET /api/admin/hospitals - View All Hospitals
+ * @desc    GET /api/admin/hospitals - View All Hospitals from MongoDB
  */
 exports.getHospitals = async (req, res, next) => {
   try {
@@ -209,7 +213,7 @@ exports.getHospitals = async (req, res, next) => {
 };
 
 /**
- * @desc    PUT /api/admin/hospitals/:id - Edit Hospital
+ * @desc    PUT /api/admin/hospitals/:id - Edit Hospital in MongoDB
  */
 exports.updateHospital = async (req, res, next) => {
   try {
@@ -220,7 +224,7 @@ exports.updateHospital = async (req, res, next) => {
     if (!hospital) {
       return res.status(404).json({
         success: false,
-        message: "Hospital not found.",
+        message: "Hospital not found in MongoDB.",
       });
     }
 
@@ -237,7 +241,7 @@ exports.updateHospital = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: `Hospital '${hospital.hospitalName}' updated successfully!`,
+      message: `Hospital '${hospital.hospitalName}' updated successfully in MongoDB!`,
       hospital,
     });
   } catch (error) {
@@ -246,7 +250,7 @@ exports.updateHospital = async (req, res, next) => {
 };
 
 /**
- * @desc    DELETE /api/admin/hospitals/:id - Delete Hospital
+ * @desc    DELETE /api/admin/hospitals/:id - Delete Hospital from MongoDB
  */
 exports.deleteHospital = async (req, res, next) => {
   try {
@@ -256,15 +260,16 @@ exports.deleteHospital = async (req, res, next) => {
     if (!hospital) {
       return res.status(404).json({
         success: false,
-        message: "Hospital not found.",
+        message: "Hospital not found in MongoDB.",
       });
     }
 
+    await MedicalRecord.deleteMany({ hospitalId: id });
     await Patient.deleteMany({ hospitalId: id });
 
     return res.status(200).json({
       success: true,
-      message: `Hospital '${hospital.hospitalName}' deleted successfully!`,
+      message: `Hospital '${hospital.hospitalName}' deleted successfully from MongoDB!`,
     });
   } catch (error) {
     next(error);
