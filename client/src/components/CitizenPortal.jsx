@@ -22,6 +22,12 @@ export default function CitizenPortal({ healthId, setHealthId }) {
     }
   }, [healthId]);
 
+  const safeSetHealthId = (val) => {
+    if (typeof setHealthId === "function") {
+      setHealthId(val);
+    }
+  };
+
   const handlePatientLogin = async (certNumber = birthCertInput, existingToken = null) => {
     if (!certNumber || !certNumber.trim()) return;
     setIsLoading(true);
@@ -65,7 +71,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
         await fetchPatientProfile(cleanCert, token);
       }
 
-      setHealthId(cleanCert);
+      safeSetHealthId(cleanCert);
       fetchPatientRecords(cleanCert, token);
     } catch (err) {
       console.error("[PATIENT LOGIN ERROR]", err);

@@ -1,6 +1,7 @@
 const Admin = require("../models/Admin");
 const Hospital = require("../models/Hospital");
 const Patient = require("../models/Patient");
+const Doctor = require("../models/Doctor");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
 
@@ -85,6 +86,38 @@ exports.getAdminDashboard = async (req, res, next) => {
         totalDoctors,
       },
       recentRecords,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    GET /api/admin/doctors - View All Doctors Across All Hospitals
+ */
+exports.getAdminDoctors = async (req, res, next) => {
+  try {
+    const hospitals = await Hospital.find();
+    let doctorList = [];
+
+    hospitals.forEach((h) => {
+      if (Array.isArray(h.doctors)) {
+        h.doctors.forEach((docName) => {
+          doctorList.push({
+            name: docName,
+            hospitalId: h._id,
+            hospitalName: h.hospitalName || h.name,
+            location: h.location,
+          });
+        });
+      }
+    });
+
+    return res.status(200).json({
+      success: true,
+      count: doctorList.length,
+      doctors: doctorList,
+      data: doctorList,
     });
   } catch (error) {
     next(error);

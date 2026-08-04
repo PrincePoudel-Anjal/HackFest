@@ -3,6 +3,7 @@ const router = express.Router();
 const {
   adminLogin,
   getAdminDashboard,
+  getAdminDoctors,
   createHospital,
   getHospitals,
   updateHospital,
@@ -14,6 +15,9 @@ router.post("/login", adminLogin);
 
 // GET /api/admin/dashboard
 router.get("/dashboard", getAdminDashboard);
+
+// GET /api/admin/doctors
+router.get("/doctors", getAdminDoctors);
 
 // Hospital Management Routes: POST, GET, PUT, DELETE
 router.route("/hospitals")
