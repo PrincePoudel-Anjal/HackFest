@@ -151,6 +151,7 @@ exports.getPatientProfile = async (req, res, next) => {
 /**
  * @desc    GET /api/patient/records & GET /api/medical-records
  *          Reads citizenId from req.user / JWT payload or query param and returns all medical records sorted by visitDate descending
+ *          Deduplicates records across collections using fingerprint matching
  */
 exports.getPatientRecords = async (req, res, next) => {
   try {
@@ -189,44 +190,58 @@ exports.getPatientRecords = async (req, res, next) => {
 
     const query = { $or: searchConditions };
 
-    // 1. Fetch from MedicalRecord (medicalrecords collection)
+    // 1. Fetch from MedicalRecord (primary collection)
     const medicalRecords = await MedicalRecord.find(query)
       .sort({ visitDate: -1, createdAt: -1 })
       .populate("hospitalId", "hospitalName location");
 
-    // 2. Fetch from Patient (patients collection)
+    // 2. Fetch from Patient (fallback collection)
     const patientRecords = await Patient.find(query)
       .sort({ visitDate: -1, createdAt: -1 })
       .populate("hospitalId", "hospitalName location");
 
-    // 3. Fetch from MedicalReport (medicalreports collection)
+    // 3. Fetch from MedicalReport (fallback collection)
     const reportRecords = await MedicalReport.find(query)
       .sort({ recordDate: -1, createdAt: -1 });
 
-    // Combine & deduplicate records by string _id
+    // Deduplicate records using fingerprint hash map
     const combinedMap = new Map();
 
+    const getFingerprint = (rec) => {
+      const diag = (rec.diagnosis || rec.title || "").toLowerCase().trim();
+      const sym = (rec.symptoms || "").toLowerCase().trim();
+      const doc = (rec.assignedDoctor || rec.doctor || "").toLowerCase().trim();
+      const hosp = (rec.hospitalName || rec.assignedHospital || "").toLowerCase().trim();
+      const vDate = rec.visitDate || rec.recordDate || rec.createdAt;
+      const dateStr = vDate ? new Date(vDate).toISOString().slice(0, 10) : "2026-08-04";
+      return `${diag}|${sym}|${doc}|${hosp}|${dateStr}`;
+    };
+
     medicalRecords.forEach((m) => {
-      combinedMap.set(String(m._id), {
-        _id: m._id,
-        citizenId: m.citizenId,
-        healthId: m.healthId,
-        birthCertificateNumber: m.birthCertificateNumber,
-        hospitalId: m.hospitalId?._id || m.hospitalId,
-        hospitalName: m.hospitalName || m.hospitalId?.hospitalName || "Regional Hospital",
-        assignedDoctor: m.assignedDoctor,
-        diagnosis: m.diagnosis || "Clinical Diagnostic Assessment",
-        symptoms: m.symptoms,
-        prescription: m.prescription,
-        visitDate: m.visitDate || m.createdAt,
-        notes: m.notes,
-        createdAt: m.createdAt,
-      });
+      const fp = getFingerprint(m);
+      if (!combinedMap.has(fp)) {
+        combinedMap.set(fp, {
+          _id: m._id,
+          citizenId: m.citizenId,
+          healthId: m.healthId,
+          birthCertificateNumber: m.birthCertificateNumber,
+          hospitalId: m.hospitalId?._id || m.hospitalId,
+          hospitalName: m.hospitalName || m.hospitalId?.hospitalName || "Regional Hospital",
+          assignedDoctor: m.assignedDoctor,
+          diagnosis: m.diagnosis || "Clinical Diagnostic Assessment",
+          symptoms: m.symptoms,
+          prescription: m.prescription,
+          visitDate: m.visitDate || m.createdAt,
+          notes: m.notes,
+          createdAt: m.createdAt,
+        });
+      }
     });
 
     patientRecords.forEach((p) => {
-      if (!combinedMap.has(String(p._id))) {
-        combinedMap.set(String(p._id), {
+      const fp = getFingerprint(p);
+      if (!combinedMap.has(fp)) {
+        combinedMap.set(fp, {
           _id: p._id,
           citizenId: p.citizenId,
           healthId: p.healthId,
@@ -245,8 +260,9 @@ exports.getPatientRecords = async (req, res, next) => {
     });
 
     reportRecords.forEach((r) => {
-      if (!combinedMap.has(String(r._id))) {
-        combinedMap.set(String(r._id), {
+      const fp = getFingerprint(r);
+      if (!combinedMap.has(fp)) {
+        combinedMap.set(fp, {
           _id: r._id,
           citizenId: r.citizenId || citizenDoc?._id,
           healthId: r.healthId || citizenDoc?.healthId,
@@ -373,27 +389,8 @@ exports.createPatient = async (req, res, next) => {
       createdAt: new Date(),
     };
 
-    // 3. Save into MedicalRecord (medicalrecords collection) AND Patient (patients collection)
+    // 3. Save into MedicalRecord (medicalrecords collection) ONLY as single source of truth
     const newMedicalRecord = await MedicalRecord.create(newRecordData);
-
-    try {
-      await Patient.create(newRecordData);
-    } catch (e) {}
-
-    try {
-      await MedicalReport.create({
-        patientName: citizenDoc.fullName || citizenDoc.name,
-        birthCertificateNumber: citizenDoc.birthCertificateNumber,
-        assignedDoctor: assignedDoctor.trim(),
-        symptoms: symptoms.trim(),
-        assignedHospital: hospitalDoc.hospitalName || hospitalDoc.name,
-        healthId: citizenDoc.healthId,
-        title: diagnosis || "Clinical Diagnostic Assessment",
-        category: "Blood Test",
-        recordDate: visitDate ? new Date(visitDate) : new Date(),
-        notes: notes || "",
-      });
-    } catch (e) {}
 
     console.log(`[MEDICAL RECORD CREATED SUCCESS] Linked citizenId '${citizenDoc._id}' for '${citizenDoc.fullName}' at '${hospitalDoc.hospitalName || hospitalDoc.name}'!`);
 
@@ -449,10 +446,6 @@ exports.updatePatient = async (req, res, next) => {
   try {
     const { id } = req.params;
     const patientRecord = await MedicalRecord.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
-
-    if (!patientRecord) {
-      await Patient.findByIdAndUpdate(id, req.body);
-    }
 
     return res.status(200).json({
       success: true,
