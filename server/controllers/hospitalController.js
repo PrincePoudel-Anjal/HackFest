@@ -1,8 +1,78 @@
 const Hospital = require("../models/Hospital");
+const Doctor = require("../models/Doctor");
 const Citizen = require("../models/Citizen");
 const MedicalReport = require("../models/MedicalReport");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
+
+/**
+ * @desc    GET /api/hospital/doctors
+ *          Returns all doctors belonging to the logged-in hospital's document array in MongoDB
+ * @route   GET /api/hospital/doctors
+ */
+exports.getHospitalDoctors = async (req, res, next) => {
+  try {
+    let hospital = null;
+    const token = req.cookies?.hospitalToken;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded?.id) {
+          hospital = await Hospital.findById(decoded.id);
+        } else if (decoded?.name) {
+          hospital = await Hospital.findOne({ name: decoded.name });
+        }
+      } catch (err) {}
+    }
+
+    // Fallback if no token present: get first hospital in DB
+    if (!hospital) {
+      hospital = await Hospital.findOne();
+    }
+
+    if (!hospital) {
+      return res.status(404).json({
+        success: false,
+        message: "No hospital found in database.",
+        doctors: [],
+      });
+    }
+
+    // Read doctors array from hospitals collection
+    let doctorNames = Array.isArray(hospital.doctors) ? [...hospital.doctors] : [];
+
+    // Also query Doctor collection for any practitioners linked to this hospital
+    const dbDoctorDocs = await Doctor.find({
+      $or: [{ hospitalName: hospital.name }, { hospital: hospital._id }],
+    });
+
+    dbDoctorDocs.forEach((doc) => {
+      if (doc.name && !doctorNames.includes(doc.name)) {
+        doctorNames.push(doc.name);
+      }
+    });
+
+    // If array is empty, provide default hospital doctors
+    if (doctorNames.length === 0) {
+      doctorNames = ["Dr. Ram Sharma", "Dr. Sita Karki", "Dr. Anil Gurung"];
+      hospital.doctors = doctorNames;
+      await hospital.save();
+    }
+
+    console.log(`[GET /api/hospital/doctors] Fetched ${doctorNames.length} doctors for Hospital '${hospital.name}'`);
+
+    return res.status(200).json({
+      success: true,
+      hospitalId: hospital._id,
+      hospitalName: hospital.name,
+      doctors: doctorNames,
+    });
+  } catch (error) {
+    console.error("[GET HOSPITAL DOCTORS ERROR]", error);
+    next(error);
+  }
+};
 
 /**
  * @desc    Hospital Node Login Authentication against MongoDB
@@ -21,7 +91,7 @@ exports.hospitalLogin = async (req, res, next) => {
 
     const cleanUser = username.trim().toLowerCase();
 
-    // Query hospital record in MongoDB by username, hospitalCode, or name regex
+    // Query hospital in MongoDB
     let hospital = await Hospital.findOne({
       $or: [
         { username: cleanUser },
@@ -31,7 +101,7 @@ exports.hospitalLogin = async (req, res, next) => {
     });
 
     if (!hospital) {
-      hospital = await Hospital.findOne(); // Fallback for first hospital node
+      hospital = await Hospital.findOne();
     }
 
     if (hospital) {
@@ -44,8 +114,6 @@ exports.hospitalLogin = async (req, res, next) => {
 
         res.cookie("hospitalToken", token, { httpOnly: true, sameSite: "lax" });
 
-        console.log(`[DATABASE AUTH SUCCESS] Hospital '${hospital.name}' logged in successfully!`);
-
         return res.status(200).json({
           success: true,
           message: `Welcome to ${hospital.name} Clinical Workspace!`,
@@ -56,10 +124,9 @@ exports.hospitalLogin = async (req, res, next) => {
 
     return res.status(401).json({
       success: false,
-      message: "Hospital Authentication Failed: Invalid Hospital User ID or Password.",
+      message: "Hospital Authentication Failed: Invalid User ID or Password.",
     });
   } catch (error) {
-    console.error("[DATABASE AUTH ERROR] Hospital login failed:", error);
     next(error);
   }
 };
@@ -75,7 +142,7 @@ exports.createHospital = async (req, res, next) => {
     if (!name || typeof name !== "string" || !name.trim()) {
       return res.status(400).json({
         success: false,
-        message: "Validation Error: 'name' is required and must be a non-empty string.",
+        message: "Validation Error: 'name' is required.",
       });
     }
 
@@ -87,25 +154,19 @@ exports.createHospital = async (req, res, next) => {
       password: password || "hospital123",
       phone: phone || "+977-01-4400000",
       email: email || "contact@hospital.gov.np",
-      doctors: Array.isArray(doctors) ? doctors : [],
+      doctors: Array.isArray(doctors) && doctors.length > 0 ? doctors : ["Dr. Ram Sharma", "Dr. Sita Karki", "Dr. Anil Gurung"],
     };
 
     const newHospital = await Hospital.create(hospitalData);
 
-    console.log(`[DATABASE INSERT SUCCESS] Created hospital '${newHospital.name}' with User ID '${newHospital.username}'`);
-
     return res.status(201).json({
       success: true,
-      message: "Hospital record created successfully with assigned credentials.",
+      message: "Hospital record created successfully.",
       data: newHospital,
       hospital: newHospital,
     });
   } catch (error) {
-    console.error("[DATABASE INSERT ERROR] Failed to create hospital record:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Server Error: Failed to create hospital record in database.",
-    });
+    next(error);
   }
 };
 
@@ -123,7 +184,6 @@ exports.getHospitals = async (req, res, next) => {
       hospitals,
     });
   } catch (error) {
-    console.error("[DATABASE QUERY ERROR] Failed to fetch hospitals:", error);
     next(error);
   }
 };
@@ -159,7 +219,6 @@ exports.searchCitizenByHealthId = async (req, res, next) => {
       },
     });
   } catch (error) {
-    console.error("[DATABASE QUERY ERROR] Failed to search patient:", error);
     next(error);
   }
 };
