@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion } from "framer-motion";
+import { motion, AnimatePresence } from "framer-motion";
 import {
   Activity,
   ShieldCheck,
@@ -21,11 +21,54 @@ import {
   Zap,
   Globe,
   Database,
+  LogOut,
+  LogIn,
+  UserPlus,
 } from "lucide-react";
 
 export default function LandingPage() {
   const navigate = useNavigate();
   const [activeTimelineYear, setActiveTimelineYear] = useState(2026);
+
+  // ── Per-Portal Independent Auth State ──────────────────────────────
+  // Reads from localStorage (JWT tokens stored after login in each portal)
+  // ONLY the specific token is removed on logout — other sessions untouched.
+  const [patientLoggedIn, setPatientLoggedIn] = useState(false);
+  const [hospitalLoggedIn, setHospitalLoggedIn] = useState(false);
+  const [adminLoggedIn, setAdminLoggedIn] = useState(false);
+
+  // On mount, check each portal's token independently
+  useEffect(() => {
+    setPatientLoggedIn(!!localStorage.getItem("patientToken"));
+    setHospitalLoggedIn(!!localStorage.getItem("hospitalToken"));
+    setAdminLoggedIn(!!localStorage.getItem("adminToken"));
+  }, []);
+
+  // Patient logout — removes ONLY patientToken
+  const handlePatientLogout = async () => {
+    localStorage.removeItem("patientToken");
+    localStorage.removeItem("patientCert");
+    setPatientLoggedIn(false);
+  };
+
+  // Hospital logout — removes ONLY hospitalToken
+  const handleHospitalLogout = async () => {
+    localStorage.removeItem("hospitalToken");
+    setHospitalLoggedIn(false);
+  };
+
+  // Admin logout — removes ONLY adminToken
+  const handleAdminLogout = async () => {
+    localStorage.removeItem("adminToken");
+    setAdminLoggedIn(false);
+  };
+
+  // Animation variant for auth state switching
+  const authFade = {
+    hidden: { opacity: 0, y: 6 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.25 } },
+    exit: { opacity: 0, y: -6, transition: { duration: 0.2 } },
+  };
 
   // Animation Variants
   const fadeInUp = {
@@ -566,16 +609,36 @@ export default function LandingPage() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          
-          {/* PATIENT PORTAL CARD */}
+
+          {/* ─── PATIENT PORTAL CARD ──────────────────────────────────── */}
           <motion.div
             whileHover={{ y: -8 }}
-            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left"
+            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left relative overflow-hidden"
           >
+            {/* Logged-in glow ring */}
+            {patientLoggedIn && (
+              <div className="absolute inset-0 rounded-3xl ring-2 ring-teal-400/40 pointer-events-none" />
+            )}
+
             <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-lg shadow-teal-600/30">
-                <Users className="w-7 h-7" />
+              <div className="flex items-center justify-between">
+                <div className="w-14 h-14 rounded-2xl bg-teal-600 text-white flex items-center justify-center shadow-lg shadow-teal-600/30">
+                  <Users className="w-7 h-7" />
+                </div>
+                <AnimatePresence mode="wait">
+                  {patientLoggedIn && (
+                    <motion.span
+                      key="patient-badge"
+                      variants={authFade} initial="hidden" animate="visible" exit="exit"
+                      className="flex items-center space-x-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Logged In</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
+
               <h3 className="text-2xl font-black text-slate-900 tracking-tight">PATIENT PORTAL</h3>
               <p className="text-xs text-slate-600 font-medium leading-relaxed">
                 Log in with your Birth Certificate Number to view your lifelong health passport and AI insights.
@@ -597,24 +660,75 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            <button
-              onClick={() => navigate("/patient")}
-              className="w-full py-3.5 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs shadow-lg shadow-teal-600/20 transition-all flex items-center justify-center space-x-2 group"
-            >
-              <span>Enter Patient Portal</span>
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </button>
+            {/* Auth Action Area */}
+            <AnimatePresence mode="wait">
+              {patientLoggedIn ? (
+                <motion.div
+                  key="patient-loggedin"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/patient")}
+                    className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs shadow-lg shadow-teal-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <span>Open Patient Portal</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <button
+                    onClick={handlePatientLogout}
+                    className="w-full py-2.5 rounded-2xl bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 font-bold text-xs border border-slate-200 hover:border-red-200 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Logout Patient Session</span>
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="patient-loggedout"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/patient")}
+                    className="w-full py-3 rounded-2xl bg-teal-600 hover:bg-teal-700 text-white font-extrabold text-xs shadow-lg shadow-teal-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Login to Patient Portal</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
 
-          {/* HOSPITAL PORTAL CARD */}
+          {/* ─── HOSPITAL PORTAL CARD ─────────────────────────────────── */}
           <motion.div
             whileHover={{ y: -8 }}
-            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left"
+            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left relative overflow-hidden"
           >
+            {hospitalLoggedIn && (
+              <div className="absolute inset-0 rounded-3xl ring-2 ring-emerald-400/40 pointer-events-none" />
+            )}
+
             <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30">
-                <Hospital className="w-7 h-7" />
+              <div className="flex items-center justify-between">
+                <div className="w-14 h-14 rounded-2xl bg-emerald-600 text-white flex items-center justify-center shadow-lg shadow-emerald-600/30">
+                  <Hospital className="w-7 h-7" />
+                </div>
+                <AnimatePresence mode="wait">
+                  {hospitalLoggedIn && (
+                    <motion.span
+                      key="hospital-badge"
+                      variants={authFade} initial="hidden" animate="visible" exit="exit"
+                      className="flex items-center space-x-1 text-[11px] font-extrabold text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-xl border border-emerald-200"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                      <span>Logged In</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
+
               <h3 className="text-2xl font-black text-slate-900 tracking-tight">HOSPITAL PORTAL</h3>
               <p className="text-xs text-slate-600 font-medium leading-relaxed">
                 Hospital staff workspace to register newborns, lookup citizens, and record patient visits.
@@ -636,24 +750,74 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            <button
-              onClick={() => navigate("/hospital")}
-              className="w-full py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 group"
-            >
-              <span>Enter Hospital Portal</span>
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </button>
+            <AnimatePresence mode="wait">
+              {hospitalLoggedIn ? (
+                <motion.div
+                  key="hospital-loggedin"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/hospital")}
+                    className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <span>Open Hospital Portal</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <button
+                    onClick={handleHospitalLogout}
+                    className="w-full py-2.5 rounded-2xl bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 font-bold text-xs border border-slate-200 hover:border-red-200 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Logout Hospital Session</span>
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="hospital-loggedout"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/hospital")}
+                    className="w-full py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-xs shadow-lg shadow-emerald-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Login to Hospital Portal</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
 
-          {/* ADMIN PORTAL CARD */}
+          {/* ─── ADMIN PORTAL CARD ────────────────────────────────────── */}
           <motion.div
             whileHover={{ y: -8 }}
-            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left"
+            className="bg-gradient-to-b from-white via-slate-50 to-slate-100 p-8 rounded-3xl border border-slate-200 shadow-xl space-y-6 flex flex-col justify-between text-left relative overflow-hidden"
           >
+            {adminLoggedIn && (
+              <div className="absolute inset-0 rounded-3xl ring-2 ring-amber-400/40 pointer-events-none" />
+            )}
+
             <div className="space-y-4">
-              <div className="w-14 h-14 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-lg shadow-amber-600/30">
-                <ShieldCheck className="w-7 h-7" />
+              <div className="flex items-center justify-between">
+                <div className="w-14 h-14 rounded-2xl bg-amber-600 text-white flex items-center justify-center shadow-lg shadow-amber-600/30">
+                  <ShieldCheck className="w-7 h-7" />
+                </div>
+                <AnimatePresence mode="wait">
+                  {adminLoggedIn && (
+                    <motion.span
+                      key="admin-badge"
+                      variants={authFade} initial="hidden" animate="visible" exit="exit"
+                      className="flex items-center space-x-1 text-[11px] font-extrabold text-amber-700 bg-amber-50 px-2.5 py-1 rounded-xl border border-amber-200"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5 text-amber-600" />
+                      <span>Logged In</span>
+                    </motion.span>
+                  )}
+                </AnimatePresence>
               </div>
+
               <h3 className="text-2xl font-black text-slate-900 tracking-tight">ADMIN PORTAL</h3>
               <p className="text-xs text-slate-600 font-medium leading-relaxed">
                 System Admin dashboard for national hospital node directory management and MongoDB metrics.
@@ -675,13 +839,44 @@ export default function LandingPage() {
               </ul>
             </div>
 
-            <button
-              onClick={() => navigate("/admin")}
-              className="w-full py-3.5 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-lg shadow-amber-600/20 transition-all flex items-center justify-center space-x-2 group"
-            >
-              <span>Enter Admin Portal</span>
-              <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
-            </button>
+            <AnimatePresence mode="wait">
+              {adminLoggedIn ? (
+                <motion.div
+                  key="admin-loggedin"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/admin")}
+                    className="w-full py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-lg shadow-amber-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <span>Open Admin Portal</span>
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </button>
+                  <button
+                    onClick={handleAdminLogout}
+                    className="w-full py-2.5 rounded-2xl bg-slate-100 hover:bg-red-50 text-slate-600 hover:text-red-700 font-bold text-xs border border-slate-200 hover:border-red-200 transition-all flex items-center justify-center space-x-2"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Logout Admin Session</span>
+                  </button>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="admin-loggedout"
+                  variants={authFade} initial="hidden" animate="visible" exit="exit"
+                  className="space-y-2"
+                >
+                  <button
+                    onClick={() => navigate("/admin")}
+                    className="w-full py-3 rounded-2xl bg-amber-600 hover:bg-amber-700 text-white font-extrabold text-xs shadow-lg shadow-amber-600/20 transition-all flex items-center justify-center space-x-2 group"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Login to Admin Portal</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </motion.div>
         </div>
       </section>
