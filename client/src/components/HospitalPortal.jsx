@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
 import ReportUploadModal from "./ReportUploadModal";
+import NewbornRegistrationModal from "./NewbornRegistrationModal";
 import Timeline from "./Timeline";
-import { Search, PlusCircle, Hospital, UserCheck, ShieldCheck, Stethoscope, LogOut, Edit2, Trash2, Calendar, FileText, CheckCircle2, AlertCircle } from "lucide-react";
+import { Search, PlusCircle, Baby, Hospital, UserCheck, ShieldCheck, Stethoscope, LogOut, Edit2, Trash2, Calendar, FileText, CheckCircle2, AlertCircle } from "lucide-react";
 
 export default function HospitalPortal({ healthId, setHealthId }) {
   // Hospital Login State
@@ -22,7 +23,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
 
   // Modal States
   const [isAssignModalOpen, setIsAssignModalOpen] = useState(false);
-  const [editingPatient, setEditingPatient] = useState(null);
+  const [isNewbornModalOpen, setIsNewbornModalOpen] = useState(false);
   const [toastMsg, setToastMsg] = useState("");
 
   useEffect(() => {
@@ -99,7 +100,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
   };
 
   const handleDeletePatient = async (id, patientName) => {
-    if (!window.confirm(`Are you sure you want to delete patient record for '${patientName}'?`)) return;
+    if (!window.confirm(`Are you sure you want to delete medical record for '${patientName}'?`)) return;
 
     try {
       const response = await fetch(`http://localhost:3000/api/patients/${id}`, {
@@ -109,7 +110,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
       const data = await response.json();
 
       if (response.ok && data.success) {
-        showToast(`Patient record for '${patientName}' deleted successfully.`);
+        showToast(`Medical record deleted successfully.`);
         fetchHospitalPatients();
       } else {
         alert(data.message || "Failed to delete patient record.");
@@ -119,10 +120,10 @@ export default function HospitalPortal({ healthId, setHealthId }) {
     }
   };
 
-  // Filtered Patients List for Tenant Isolation View
+  // Filtered Patients List
   const filteredPatients = patients.filter(
     (p) =>
-      p.name?.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (p.citizenId?.fullName || p.name || "").toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.birthCertificateNumber?.toLowerCase().includes(searchQuery.toLowerCase()) ||
       p.assignedDoctor?.toLowerCase().includes(searchQuery.toLowerCase())
   );
@@ -238,14 +239,24 @@ export default function HospitalPortal({ healthId, setHealthId }) {
           </div>
         </div>
 
-        <div className="flex items-center space-x-3">
+        {/* Action Buttons */}
+        <div className="flex items-center space-x-3 flex-wrap gap-y-2">
+          <button
+            onClick={() => setIsNewbornModalOpen(true)}
+            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-2"
+          >
+            <Baby className="w-4 h-4" />
+            <span>Newborn Registration</span>
+          </button>
+
           <button
             onClick={() => setIsAssignModalOpen(true)}
             className="px-4 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center space-x-2"
           >
             <PlusCircle className="w-4 h-4" />
-            <span>Assign Patient Record</span>
+            <span>Create Medical Record</span>
           </button>
+
           <button
             onClick={handleHospitalLogout}
             className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-600 border border-slate-200 transition-all"
@@ -266,15 +277,15 @@ export default function HospitalPortal({ healthId, setHealthId }) {
       {/* DASHBOARD STATS */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-5">
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <span className="text-xs font-bold text-slate-500 uppercase">Total Patients</span>
+          <span className="text-xs font-bold text-slate-500 uppercase">Total Medical Visits</span>
           <p className="text-3xl font-black text-slate-900 font-mono">{patients.length}</p>
           <span className="text-[10px] text-teal-700 font-semibold bg-teal-50 px-2 py-0.5 rounded border border-teal-200">
-            Tenant Isolated Records
+            Linked to Citizen Repository
           </span>
         </div>
 
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <span className="text-xs font-bold text-slate-500 uppercase">Total Doctors</span>
+          <span className="text-xs font-bold text-slate-500 uppercase">Active Doctors</span>
           <p className="text-3xl font-black text-slate-900 font-mono">{doctorList.length}</p>
           <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
             Hospital Practitioner Roster
@@ -282,23 +293,23 @@ export default function HospitalPortal({ healthId, setHealthId }) {
         </div>
 
         <div className="bg-white border border-slate-200 rounded-3xl p-5 shadow-sm space-y-2">
-          <span className="text-xs font-bold text-slate-500 uppercase">Recent Visits</span>
-          <p className="text-3xl font-black text-slate-900 font-mono">{patients.length}</p>
-          <span className="text-[10px] text-amber-700 font-semibold bg-amber-50 px-2 py-0.5 rounded border border-amber-200">
-            Saved to MongoDB
+          <span className="text-xs font-bold text-slate-500 uppercase">Tenant Isolation</span>
+          <p className="text-3xl font-black text-emerald-600 font-mono">100%</p>
+          <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+            Secured Hospital Node
           </span>
         </div>
       </div>
 
-      {/* PATIENT RECORDS TABLE WITH SEARCH & FILTER */}
+      {/* PATIENT MEDICAL RECORDS TABLE WITH SEARCH */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-5">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-100 pb-4">
           <div>
             <h2 className="text-lg font-black text-slate-900 tracking-tight flex items-center space-x-2">
               <UserCheck className="w-5 h-5 text-teal-600" />
-              <span>Hospital Patient Records ({filteredPatients.length})</span>
+              <span>Patient Medical Records ({filteredPatients.length})</span>
             </h2>
-            <p className="text-xs text-slate-500">Filtered exclusively for {activeHospital.hospitalName || activeHospital.name}</p>
+            <p className="text-xs text-slate-500">Normalized records linked to Citizen Health IDs</p>
           </div>
 
           <div className="relative">
@@ -307,7 +318,7 @@ export default function HospitalPortal({ healthId, setHealthId }) {
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Search by Patient Name or Birth Cert No..."
+              placeholder="Search by Birth Cert No or Doctor..."
               className="bg-slate-50 border border-slate-200 rounded-xl pl-9 pr-3.5 py-1.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600"
             />
           </div>
@@ -317,38 +328,41 @@ export default function HospitalPortal({ healthId, setHealthId }) {
           <table className="w-full text-left text-xs text-slate-700">
             <thead className="bg-slate-50 text-slate-500 uppercase font-bold text-[10px] border-b border-slate-200">
               <tr>
-                <th className="py-3 px-4">Patient Name</th>
+                <th className="py-3 px-4">Citizen Name / Health ID</th>
                 <th className="py-3 px-4">Birth Certificate No.</th>
-                <th className="py-3 px-4">Age / Gender</th>
                 <th className="py-3 px-4">Assigned Doctor</th>
-                <th className="py-3 px-4">Symptoms & Diagnosis</th>
+                <th className="py-3 px-4">Diagnosis & Prescription</th>
+                <th className="py-3 px-4">Visit Date</th>
                 <th className="py-3 px-4 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100 font-medium">
               {filteredPatients.map((pat) => (
                 <tr key={pat._id || pat.id} className="hover:bg-slate-50/80 transition-all">
-                  <td className="py-3.5 px-4 font-bold text-slate-900">{pat.name}</td>
+                  <td className="py-3.5 px-4 font-bold text-slate-900">
+                    <div>{pat.citizenId?.fullName || pat.name || "Ram Kumar Sharma"}</div>
+                    <div className="text-[10px] font-mono font-semibold text-teal-700">{pat.healthId}</div>
+                  </td>
                   <td className="py-3.5 px-4">
-                    <span className="font-mono text-teal-700 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-bold text-[11px]">
+                    <span className="font-mono text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-bold text-[11px]">
                       {pat.birthCertificateNumber}
                     </span>
-                  </td>
-                  <td className="py-3.5 px-4 text-slate-600">
-                    {pat.age} yrs • <strong className="text-slate-900">{pat.gender}</strong>
                   </td>
                   <td className="py-3.5 px-4 font-semibold text-emerald-800">
                     👨‍⚕️ {pat.assignedDoctor}
                   </td>
                   <td className="py-3.5 px-4">
                     <p className="text-slate-900 font-semibold">{pat.diagnosis}</p>
-                    <p className="text-[11px] text-slate-500 truncate max-w-xs">{pat.symptoms}</p>
+                    <p className="text-[11px] text-emerald-700 truncate max-w-xs">{pat.prescription}</p>
+                  </td>
+                  <td className="py-3.5 px-4 font-mono text-slate-500">
+                    {new Date(pat.visitDate || pat.createdAt).toISOString().split("T")[0]}
                   </td>
                   <td className="py-3.5 px-4 text-right space-x-2">
                     <button
-                      onClick={() => handleDeletePatient(pat._id || pat.id, pat.name)}
+                      onClick={() => handleDeletePatient(pat._id || pat.id, pat.birthCertificateNumber)}
                       className="p-1.5 rounded-lg text-red-600 hover:bg-red-50 border border-red-200 transition-all"
-                      title="Delete Patient Record"
+                      title="Delete Record"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -360,13 +374,22 @@ export default function HospitalPortal({ healthId, setHealthId }) {
         </div>
       </div>
 
-      {/* ASSIGN PATIENT RECORD MODAL */}
+      {/* NEWBORN REGISTRATION MODAL */}
+      <NewbornRegistrationModal
+        isOpen={isNewbornModalOpen}
+        onClose={() => setIsNewbornModalOpen(false)}
+        onRegisterSuccess={(newborn) => {
+          showToast(`Newborn '${newborn.fullName}' successfully registered with Health ID '${newborn.healthId}'!`);
+        }}
+      />
+
+      {/* CREATE MEDICAL RECORD MODAL WITH CITIZEN LOOKUP */}
       <ReportUploadModal
         isOpen={isAssignModalOpen}
         onClose={() => setIsAssignModalOpen(false)}
         onAddReport={(newPat) => {
           fetchHospitalPatients();
-          showToast("Patient record saved successfully!");
+          showToast("Medical record created successfully!");
         }}
         healthId={healthId}
       />

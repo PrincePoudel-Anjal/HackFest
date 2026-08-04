@@ -1,5 +1,191 @@
 const Citizen = require("../models/Citizen");
 const MedicalReport = require("../models/MedicalReport");
+const Patient = require("../models/Patient");
+
+/**
+ * @desc    Register a Newborn / Citizen in National Health Repository
+ * @route   POST /api/citizens (or POST /api/citizen/register)
+ * @access  Authenticated Hospital Staff
+ */
+exports.registerCitizen = async (req, res, next) => {
+  try {
+    const {
+      fullName,
+      name,
+      birthCertificateNumber,
+      healthId,
+      dob,
+      gender,
+      bloodGroup,
+      fatherName,
+      motherName,
+      phone,
+      province,
+      district,
+      city,
+      emergencyContactName,
+      emergencyContactPhone,
+      emergencyContactRelation,
+    } = req.body;
+
+    const targetName = (fullName || name || "").trim();
+
+    // 1. Validations
+    if (!targetName) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Full Name is required.",
+      });
+    }
+
+    if (!birthCertificateNumber || !birthCertificateNumber.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Birth Certificate Number is required.",
+      });
+    }
+
+    if (!dob) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Date of Birth is required.",
+      });
+    }
+
+    if (!gender || !gender.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Gender is required.",
+      });
+    }
+
+    const cleanCert = birthCertificateNumber.trim();
+
+    // 2. Check Uniqueness of Birth Certificate Number
+    const existingCert = await Citizen.findOne({ birthCertificateNumber: cleanCert });
+    if (existingCert) {
+      return res.status(400).json({
+        success: false,
+        message: `Birth Certificate Number '${cleanCert}' is already registered in the system.`,
+      });
+    }
+
+    // 3. Auto-generate Unique Health ID if not provided
+    let finalHealthId = (healthId || "").trim();
+    if (!finalHealthId) {
+      const year = new Date().getFullYear();
+      const random4 = Math.floor(1000 + Math.random() * 9000);
+      finalHealthId = `NP-${year}-${random4}`;
+    }
+
+    const existingHealthId = await Citizen.findOne({ healthId: finalHealthId });
+    if (existingHealthId) {
+      const random4 = Math.floor(1000 + Math.random() * 9000);
+      finalHealthId = `NP-2026-${random4}`;
+    }
+
+    // 4. Save Newborn into Citizen Collection
+    const newCitizen = await Citizen.create({
+      fullName: targetName,
+      name: targetName,
+      birthCertificateNumber: cleanCert,
+      healthId: finalHealthId,
+      dob: new Date(dob),
+      gender: gender.trim(),
+      bloodGroup: bloodGroup || "Unknown",
+      parentDetails: {
+        fatherName: fatherName ? fatherName.trim() : "",
+        motherName: motherName ? motherName.trim() : "",
+      },
+      phone: phone ? phone.trim() : "+977-9841234567",
+      address: {
+        province: province ? province.trim() : "Bagmati Province",
+        district: district ? district.trim() : "Kathmandu",
+        city: city ? city.trim() : "Kathmandu",
+      },
+      emergencyContact: {
+        name: emergencyContactName ? emergencyContactName.trim() : (fatherName || "Parent"),
+        phone: emergencyContactPhone ? emergencyContactPhone.trim() : "+977-9801987654",
+        relation: emergencyContactRelation ? emergencyContactRelation.trim() : "Parent",
+      },
+      createdAt: new Date(),
+    });
+
+    console.log(`[NEWBORN REGISTRATION SUCCESS] Registered Newborn '${newCitizen.fullName}' (Health ID: ${newCitizen.healthId})!`);
+
+    return res.status(201).json({
+      success: true,
+      message: `Newborn '${newCitizen.fullName}' successfully registered with National Health ID '${newCitizen.healthId}'!`,
+      citizen: newCitizen,
+    });
+  } catch (error) {
+    console.error("[REGISTER CITIZEN ERROR]", error);
+    next(error);
+  }
+};
+
+/**
+ * @desc    Patient Lookup by Birth Certificate Number for Medical Record Form
+ * @route   GET /api/citizens/lookup?birthCertificateNumber=...
+ */
+exports.lookupCitizen = async (req, res, next) => {
+  try {
+    const { birthCertificateNumber, healthId } = req.query;
+    const targetCert = (birthCertificateNumber || healthId || "").trim();
+
+    if (!targetCert) {
+      return res.status(400).json({
+        success: false,
+        found: false,
+        message: "Please provide a Birth Certificate Number to perform lookup.",
+      });
+    }
+
+    const citizenDoc = await Citizen.findOne({
+      $or: [
+        { birthCertificateNumber: targetCert },
+        { birthCertificateNumber: { $regex: targetCert, $options: "i" } },
+        { healthId: targetCert },
+      ],
+    });
+
+    if (!citizenDoc) {
+      return res.status(404).json({
+        success: false,
+        found: false,
+        message: "Citizen not found. Please register the newborn first.",
+      });
+    }
+
+    // Calculate age from DOB
+    const birthYear = new Date(citizenDoc.dob).getFullYear();
+    const currentYear = new Date().getFullYear();
+    const age = Math.max(0, currentYear - birthYear);
+
+    const addressStr = `${citizenDoc.address?.city || "Kathmandu"}, ${citizenDoc.address?.district || "Kathmandu"}, ${citizenDoc.address?.province || "Bagmati Province"}`;
+
+    return res.status(200).json({
+      success: true,
+      found: true,
+      citizen: {
+        _id: citizenDoc._id,
+        fullName: citizenDoc.fullName || citizenDoc.name,
+        name: citizenDoc.fullName || citizenDoc.name,
+        dob: citizenDoc.dob ? citizenDoc.dob.toISOString().split("T")[0] : "2026-01-01",
+        age,
+        gender: citizenDoc.gender,
+        bloodGroup: citizenDoc.bloodGroup,
+        address: addressStr,
+        healthId: citizenDoc.healthId,
+        birthCertificateNumber: citizenDoc.birthCertificateNumber,
+        phone: citizenDoc.phone,
+      },
+    });
+  } catch (error) {
+    console.error("[LOOKUP CITIZEN ERROR]", error);
+    next(error);
+  }
+};
 
 /**
  * @desc    Fetch Citizen Profile from MongoDB Database
@@ -12,19 +198,11 @@ exports.getCitizenProfile = async (req, res, next) => {
       $or: [{ healthId }, { birthCertificateNumber: healthId }],
     });
 
-    // Seed default citizen if DB record not found
     if (!citizen) {
-      citizen = await Citizen.create({
-        healthId: healthId || "NP-9841-0021",
-        fullName: "Ram Kumar Sharma",
-        dob: "1983-05-14",
-        gender: "Male",
-        bloodGroup: "O+",
-        phone: "+977-9841234567",
-        address: { province: "Bagmati Province", district: "Kathmandu", city: "Kathmandu" },
-        emergencyContact: { name: "Sita Sharma", phone: "+977-9801987654", relation: "Spouse" },
+      return res.status(404).json({
+        success: false,
+        message: "Citizen profile not found.",
       });
-      console.log(`[DATABASE SEED] Created Citizen record for Health ID '${healthId}' in MongoDB.`);
     }
 
     return res.status(200).json({
@@ -32,81 +210,20 @@ exports.getCitizenProfile = async (req, res, next) => {
       citizen,
     });
   } catch (error) {
-    console.error("[DATABASE ERROR] Failed to fetch citizen profile:", error);
     next(error);
   }
 };
 
 /**
- * @desc    Fetch Citizen Lifelong Medical Timeline from MongoDB Database
+ * @desc    Fetch Citizen Timeline from MongoDB
  * @route   GET /api/citizen/timeline/:healthId
  */
 exports.getCitizenTimeline = async (req, res, next) => {
   try {
     const { healthId } = req.params;
-    let reports = await MedicalReport.find({
+    const reports = await MedicalReport.find({
       $or: [{ healthId }, { birthCertificateNumber: healthId }],
     }).sort({ recordDate: -1 });
-
-    // Seed initial historical reports if empty
-    if (reports.length === 0) {
-      const initialReports = [
-        {
-          patientName: "Ram Kumar Sharma",
-          birthCertificateNumber: "BC-2080-94812",
-          assignedDoctor: "Dr. Anish Shrestha (NMC-22104)",
-          symptoms: "Baseline routine health evaluation. Normal fasting blood glucose.",
-          assignedHospital: "Patan Hospital, Lalitpur",
-          healthId: healthId || "NP-9841-0021",
-          title: "Routine Baseline Blood Panel",
-          category: "Blood Test",
-          recordDate: new Date("2019-04-12"),
-          metrics: { bloodSugar: 95, hba1c: 5.4, bloodPressureSystolic: 120, bloodPressureDiastolic: 80, eGFR: 95 },
-          notes: "Normal baseline health assessment. No immediate risk factors.",
-        },
-        {
-          patientName: "Ram Kumar Sharma",
-          birthCertificateNumber: "BC-2080-94812",
-          assignedDoctor: "Dr. Sushil Adhikari (NMC-18492)",
-          symptoms: "Mild fatigue, slight elevation in fasting glucose levels.",
-          assignedHospital: "Tribhuvan University Teaching Hospital (TUTH)",
-          healthId: healthId || "NP-9841-0021",
-          title: "Annual Comprehensive Health Checkup",
-          category: "Blood Test",
-          recordDate: new Date("2021-08-20"),
-          metrics: { bloodSugar: 109, hba1c: 5.8, bloodPressureSystolic: 129, bloodPressureDiastolic: 84, eGFR: 93 },
-          notes: "Slight elevation in fasting glucose & HbA1c. Dietary counseling advised.",
-        },
-        {
-          patientName: "Ram Kumar Sharma",
-          birthCertificateNumber: "BC-2080-94812",
-          assignedDoctor: "Dr. Rekha Thapa (NMC-15938)",
-          symptoms: "Pre-diabetic glycemic range symptoms. Occasional dizziness.",
-          assignedHospital: "Bir Hospital (Central Referral)",
-          healthId: healthId || "NP-9841-0021",
-          title: "Follow-up Diagnostic Metabolic Lab",
-          category: "Blood Test",
-          recordDate: new Date("2023-11-05"),
-          metrics: { bloodSugar: 129, hba1c: 6.3, bloodPressureSystolic: 134, bloodPressureDiastolic: 88, eGFR: 90 },
-          notes: "Pre-diabetic glycemic range. Recommended 30-min daily exercise.",
-        },
-        {
-          patientName: "Ram Kumar Sharma",
-          birthCertificateNumber: "BC-2080-94812",
-          assignedDoctor: "Dr. Sushil Adhikari (NMC-18492)",
-          symptoms: "High fasting blood glucose (137 mg/dL), dry cough & persistent fatigue",
-          assignedHospital: "Grande International Hospital",
-          healthId: healthId || "NP-9841-0021",
-          title: "Comprehensive Metabolic Report",
-          category: "Blood Test",
-          recordDate: new Date("2024-06-15"),
-          metrics: { bloodSugar: 137, hba1c: 6.7, bloodPressureSystolic: 140, bloodPressureDiastolic: 90, eGFR: 88 },
-          notes: "Persistent multi-year upward glucose & BP trajectory.",
-        },
-      ];
-      reports = await MedicalReport.insertMany(initialReports);
-      console.log(`[DATABASE SEED] Created ${reports.length} historical MedicalReports for '${healthId}' in MongoDB.`);
-    }
 
     return res.status(200).json({
       success: true,
@@ -115,7 +232,6 @@ exports.getCitizenTimeline = async (req, res, next) => {
       timeline: reports,
     });
   } catch (error) {
-    console.error("[DATABASE ERROR] Failed to fetch citizen timeline:", error);
     next(error);
   }
 };

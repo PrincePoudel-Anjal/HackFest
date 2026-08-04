@@ -16,6 +16,7 @@ router.use("/hospitals", hospitalRoutes);
 router.use("/patient", patientRoutes);
 router.use("/patients", patientRoutes);
 router.use("/citizen", citizenRoutes);
+router.use("/citizens", citizenRoutes);
 router.use("/reports", reportRoutes);
 router.use("/ai", aiRoutes);
 

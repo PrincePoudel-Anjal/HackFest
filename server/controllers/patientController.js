@@ -1,43 +1,47 @@
 const Patient = require("../models/Patient");
+const Citizen = require("../models/Citizen");
 const Hospital = require("../models/Hospital");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
 
 /**
  * @desc    POST /api/patient/login
- *          Patient logs in using Birth Certificate Number only (No password for MVP)
+ *          Patient logs in using Birth Certificate Number only
  */
 exports.patientLogin = async (req, res, next) => {
   try {
-    const { birthCertificateNumber } = req.body;
+    const { birthCertificateNumber, healthId } = req.body;
+    const cleanCert = (birthCertificateNumber || healthId || "").trim();
 
-    if (!birthCertificateNumber || !birthCertificateNumber.trim()) {
+    if (!cleanCert) {
       return res.status(400).json({
         success: false,
-        message: "Birth Certificate Number is required to log in.",
+        message: "Birth Certificate Number or Health ID is required to log in.",
       });
     }
 
-    const cleanCert = birthCertificateNumber.trim();
-
-    // Query patient record in MongoDB
-    const patientRecord = await Patient.findOne({
+    // 1. Fetch Citizen Profile
+    const citizenDoc = await Citizen.findOne({
       $or: [
         { birthCertificateNumber: cleanCert },
-        { birthCertificateNumber: { $regex: cleanCert, $options: "i" } },
+        { healthId: cleanCert },
       ],
     });
 
-    if (!patientRecord) {
+    if (!citizenDoc) {
       return res.status(404).json({
         success: false,
-        message: `No medical records found for Birth Certificate Number '${cleanCert}'.`,
+        message: `No citizen profile found for Birth Certificate Number '${cleanCert}'.`,
       });
     }
 
-    // Generate temporary JWT after successful lookup
+    // Calculate age from DOB
+    const birthYear = new Date(citizenDoc.dob).getFullYear();
+    const age = Math.max(0, new Date().getFullYear() - birthYear);
+    const addressStr = `${citizenDoc.address?.city || "Kathmandu"}, ${citizenDoc.address?.district || "Kathmandu"}, ${citizenDoc.address?.province || "Bagmati Province"}`;
+
     const token = jwt.sign(
-      { id: patientRecord._id, birthCertificateNumber: patientRecord.birthCertificateNumber, role: "Patient" },
+      { id: citizenDoc._id, birthCertificateNumber: citizenDoc.birthCertificateNumber, role: "Patient" },
       JWT_SECRET,
       { expiresIn: "12h" }
     );
@@ -46,15 +50,20 @@ exports.patientLogin = async (req, res, next) => {
 
     return res.status(200).json({
       success: true,
-      message: `Welcome ${patientRecord.name}! Medical history loaded successfully.`,
+      message: `Welcome ${citizenDoc.fullName || citizenDoc.name}! Medical history loaded.`,
       token,
       patient: {
-        name: patientRecord.name,
-        age: patientRecord.age,
-        gender: patientRecord.gender,
-        address: patientRecord.address,
-        birthCertificateNumber: patientRecord.birthCertificateNumber,
-        phone: patientRecord.phone,
+        _id: citizenDoc._id,
+        name: citizenDoc.fullName || citizenDoc.name,
+        fullName: citizenDoc.fullName || citizenDoc.name,
+        age,
+        dob: citizenDoc.dob ? citizenDoc.dob.toISOString().split("T")[0] : "2026-01-01",
+        gender: citizenDoc.gender,
+        bloodGroup: citizenDoc.bloodGroup,
+        address: addressStr,
+        birthCertificateNumber: citizenDoc.birthCertificateNumber,
+        healthId: citizenDoc.healthId,
+        phone: citizenDoc.phone,
       },
     });
   } catch (error) {
@@ -69,23 +78,32 @@ exports.getPatientProfile = async (req, res, next) => {
   try {
     const birthCert = req.query.birthCertificateNumber || req.params.birthCert || "BC-2080-94812";
 
-    const patient = await Patient.findOne({ birthCertificateNumber: birthCert });
-    if (!patient) {
+    const citizenDoc = await Citizen.findOne({
+      $or: [{ birthCertificateNumber: birthCert }, { healthId: birthCert }],
+    });
+
+    if (!citizenDoc) {
       return res.status(404).json({
         success: false,
         message: "Patient profile not found.",
       });
     }
 
+    const birthYear = new Date(citizenDoc.dob).getFullYear();
+    const age = Math.max(0, new Date().getFullYear() - birthYear);
+    const addressStr = `${citizenDoc.address?.city || "Kathmandu"}, ${citizenDoc.address?.district || "Kathmandu"}, ${citizenDoc.address?.province || "Bagmati Province"}`;
+
     return res.status(200).json({
       success: true,
       patient: {
-        name: patient.name,
-        age: patient.age,
-        gender: patient.gender,
-        address: patient.address,
-        birthCertificateNumber: patient.birthCertificateNumber,
-        phone: patient.phone,
+        _id: citizenDoc._id,
+        name: citizenDoc.fullName || citizenDoc.name,
+        age,
+        gender: citizenDoc.gender,
+        address: addressStr,
+        birthCertificateNumber: citizenDoc.birthCertificateNumber,
+        healthId: citizenDoc.healthId,
+        phone: citizenDoc.phone,
       },
     });
   } catch (error) {
@@ -95,14 +113,15 @@ exports.getPatientProfile = async (req, res, next) => {
 
 /**
  * @desc    GET /api/patient/records
- *          Returns all medical records for the logged in patient ordered newest to oldest (visitDate descending)
+ *          Returns all medical records for the logged-in patient ordered chronologically (newest to oldest)
  */
 exports.getPatientRecords = async (req, res, next) => {
   try {
     const birthCert = req.query.birthCertificateNumber || req.params.birthCert || "BC-2080-94812";
 
-    const records = await Patient.find({ birthCertificateNumber: birthCert })
-      .sort({ visitDate: -1, createdAt: -1 });
+    const records = await Patient.find({
+      $or: [{ birthCertificateNumber: birthCert }, { healthId: birthCert }],
+    }).sort({ visitDate: -1, createdAt: -1 });
 
     return res.status(200).json({
       success: true,
@@ -116,17 +135,12 @@ exports.getPatientRecords = async (req, res, next) => {
 
 /**
  * @desc    POST /api/patients
- *          Hospital creates a new patient record
+ *          Hospital creates a new normalized medical record linked to an existing citizen
  */
 exports.createPatient = async (req, res, next) => {
   try {
     const {
-      name,
-      age,
-      gender,
-      address,
       birthCertificateNumber,
-      phone,
       symptoms,
       diagnosis,
       prescription,
@@ -135,16 +149,43 @@ exports.createPatient = async (req, res, next) => {
       visitDate,
     } = req.body;
 
-    // Validations
-    if (!name || !name.trim()) return res.status(400).json({ success: false, message: "Full Name is required." });
-    if (age === undefined || isNaN(Number(age))) return res.status(400).json({ success: false, message: "Valid Age is required." });
-    if (!gender || !gender.trim()) return res.status(400).json({ success: false, message: "Gender is required." });
-    if (!address || !address.trim()) return res.status(400).json({ success: false, message: "Address is required." });
-    if (!birthCertificateNumber || !birthCertificateNumber.trim()) return res.status(400).json({ success: false, message: "Birth Certificate Number is required." });
-    if (!symptoms || !symptoms.trim()) return res.status(400).json({ success: false, message: "Symptoms are required." });
-    if (!assignedDoctor || !assignedDoctor.trim()) return res.status(400).json({ success: false, message: "Assigned Doctor is required." });
+    // 1. Validations
+    if (!birthCertificateNumber || !birthCertificateNumber.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Birth Certificate Number is required.",
+      });
+    }
 
-    // Extract logged-in hospital from cookie or database
+    if (!symptoms || !symptoms.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Symptoms are required.",
+      });
+    }
+
+    if (!assignedDoctor || !assignedDoctor.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Validation Error: Assigned Doctor is required.",
+      });
+    }
+
+    const cleanCert = birthCertificateNumber.trim();
+
+    // 2. Lookup Citizen in Database
+    const citizenDoc = await Citizen.findOne({
+      $or: [{ birthCertificateNumber: cleanCert }, { healthId: cleanCert }],
+    });
+
+    if (!citizenDoc) {
+      return res.status(400).json({
+        success: false,
+        message: "Citizen not found. Please register the newborn first.",
+      });
+    }
+
+    // 3. Extract logged-in hospital node from cookie or database
     let hospitalDoc = null;
     const token = req.cookies?.hospitalToken;
 
@@ -161,32 +202,36 @@ exports.createPatient = async (req, res, next) => {
     }
 
     if (!hospitalDoc) {
-      return res.status(500).json({ success: false, message: "No active hospital found in database." });
+      return res.status(500).json({
+        success: false,
+        message: "Database Error: Active hospital node could not be resolved.",
+      });
     }
 
-    // Save Patient Record into "patients" collection
-    const newPatient = await Patient.create({
-      name: name.trim(),
-      age: Number(age),
-      gender: gender.trim(),
-      address: address.trim(),
-      birthCertificateNumber: birthCertificateNumber.trim(),
-      phone: phone ? phone.trim() : "+977-9841234567",
+    // 4. Create Normalized Patient Medical Record
+    const newPatientRecord = await Patient.create({
+      citizenId: citizenDoc._id,
+      healthId: citizenDoc.healthId,
+      birthCertificateNumber: citizenDoc.birthCertificateNumber,
+      hospitalId: hospitalDoc._id,
+      hospitalName: hospitalDoc.hospitalName || hospitalDoc.name,
+      assignedDoctor: assignedDoctor.trim(),
       symptoms: symptoms.trim(),
       diagnosis: diagnosis ? diagnosis.trim() : "Clinical Diagnostic Assessment",
       prescription: prescription ? prescription.trim() : "Metformin 500mg daily, Low sodium diet",
-      assignedDoctor: assignedDoctor.trim(),
-      hospitalId: hospitalDoc._id,
-      hospitalName: hospitalDoc.hospitalName || hospitalDoc.name,
-      notes: notes ? notes.trim() : "",
       visitDate: visitDate ? new Date(visitDate) : new Date(),
+      notes: notes ? notes.trim() : "",
+      createdAt: new Date(),
     });
+
+    console.log(`[NORMALIZED MEDICAL RECORD SAVED] Saved visit for '${citizenDoc.fullName}' at '${hospitalDoc.name}'!`);
 
     return res.status(201).json({
       success: true,
-      message: `Patient record for '${newPatient.name}' created under '${hospitalDoc.hospitalName}'!`,
-      patient: newPatient,
-      data: newPatient,
+      message: `Medical record for '${citizenDoc.fullName}' created under '${hospitalDoc.hospitalName}'!`,
+      patient: newPatientRecord,
+      data: newPatientRecord,
+      citizen: citizenDoc,
     });
   } catch (error) {
     next(error);
@@ -195,7 +240,7 @@ exports.createPatient = async (req, res, next) => {
 
 /**
  * @desc    GET /api/patients
- *          Hospital fetches its own patient records (Tenant Isolation)
+ *          Hospital fetches its own patient records
  */
 exports.getPatients = async (req, res, next) => {
   try {
@@ -209,15 +254,16 @@ exports.getPatients = async (req, res, next) => {
       } catch (err) {}
     }
 
-    const patients = await Patient.find(query)
+    const patientRecords = await Patient.find(query)
       .sort({ visitDate: -1, createdAt: -1 })
+      .populate("citizenId", "fullName dob gender bloodGroup address phone")
       .populate("hospitalId", "hospitalName location");
 
     return res.status(200).json({
       success: true,
-      count: patients.length,
-      patients,
-      data: patients,
+      count: patientRecords.length,
+      patients: patientRecords,
+      data: patientRecords,
     });
   } catch (error) {
     next(error);
@@ -230,24 +276,16 @@ exports.getPatients = async (req, res, next) => {
 exports.updatePatient = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const updateData = req.body;
+    const patientRecord = await Patient.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
 
-    const patient = await Patient.findByIdAndUpdate(id, updateData, {
-      new: true,
-      runValidators: true,
-    });
-
-    if (!patient) {
-      return res.status(404).json({
-        success: false,
-        message: "Patient record not found.",
-      });
+    if (!patientRecord) {
+      return res.status(404).json({ success: false, message: "Medical record not found." });
     }
 
     return res.status(200).json({
       success: true,
-      message: `Patient record for '${patient.name}' updated successfully!`,
-      patient,
+      message: "Medical record updated successfully!",
+      patient: patientRecord,
     });
   } catch (error) {
     next(error);
@@ -260,18 +298,15 @@ exports.updatePatient = async (req, res, next) => {
 exports.deletePatient = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const patient = await Patient.findByIdAndDelete(id);
+    const patientRecord = await Patient.findByIdAndDelete(id);
 
-    if (!patient) {
-      return res.status(404).json({
-        success: false,
-        message: "Patient record not found.",
-      });
+    if (!patientRecord) {
+      return res.status(404).json({ success: false, message: "Medical record not found." });
     }
 
     return res.status(200).json({
       success: true,
-      message: `Patient record for '${patient.name}' deleted successfully!`,
+      message: "Medical record deleted successfully!",
     });
   } catch (error) {
     next(error);
@@ -279,7 +314,7 @@ exports.deletePatient = async (req, res, next) => {
 };
 
 /**
- * @desc    GET /api/patients/search?q=... or birthCertificateNumber=...
+ * @desc    GET /api/patients/search?q=...
  */
 exports.searchPatients = async (req, res, next) => {
   try {
@@ -293,17 +328,17 @@ exports.searchPatients = async (req, res, next) => {
       });
     }
 
-    const patients = await Patient.find({
+    const patientRecords = await Patient.find({
       $or: [
         { birthCertificateNumber: { $regex: searchCert, $options: "i" } },
-        { name: { $regex: searchCert, $options: "i" } },
+        { healthId: { $regex: searchCert, $options: "i" } },
       ],
     }).sort({ visitDate: -1 });
 
     return res.status(200).json({
       success: true,
-      count: patients.length,
-      patients,
+      count: patientRecords.length,
+      patients: patientRecords,
     });
   } catch (error) {
     next(error);

@@ -3,6 +3,7 @@ const bcrypt = require("bcryptjs");
 
 const Admin = require("./models/Admin");
 const Hospital = require("./models/Hospital");
+const Citizen = require("./models/Citizen");
 const Patient = require("./models/Patient");
 const MedicalReport = require("./models/MedicalReport");
 
@@ -13,14 +14,14 @@ async function seedDatabase() {
     await mongoose.connect(MONGODB_URI);
     console.log(`[SEED] Connected to MongoDB database '${MONGODB_URI}'`);
 
-    // Drop indexes on hospitals collection to avoid old index conflicts
-    try {
-      await mongoose.connection.collection("hospitals").dropIndexes();
-    } catch (e) {}
+    // Drop indexes on collections to prevent stale schema index errors
+    try { await mongoose.connection.collection("hospitals").dropIndexes(); } catch (e) {}
+    try { await mongoose.connection.collection("citizens").dropIndexes(); } catch (e) {}
 
     // 1. CLEAR EXISTING DATA
     await Admin.deleteMany({});
     await Hospital.deleteMany({});
+    await Citizen.deleteMany({});
     await Patient.deleteMany({});
     await MedicalReport.deleteMany({});
     console.log("[SEED] Cleared existing database collections.");
@@ -110,16 +111,86 @@ async function seedDatabase() {
     const seededHospitals = await Hospital.insertMany(rawHospitals);
     console.log(`[SEED SUCCESS] Created ${seededHospitals.length} Hospitals with 25 Doctors total.`);
 
-    // 4. SEED 30 PATIENT RECORDS
-    const patientTemplates = [
-      { name: "Ram Kumar Sharma", birthCert: "BC-2080-94812", gender: "Male", age: 43, address: "Balaju, Kathmandu" },
-      { name: "Sita Kumari Sharma", birthCert: "BC-2080-84910", gender: "Female", age: 39, address: "Lagankhel, Lalitpur" },
-      { name: "Aayush Nepal", birthCert: "BC-2080-73920", gender: "Male", age: 28, address: "Lakeside, Pokhara" },
-      { name: "Pooja Gurung", birthCert: "BC-2080-62819", gender: "Female", age: 32, address: "Mahendrapool, Pokhara" },
-      { name: "Bikash Shrestha", birthCert: "BC-2080-51708", gender: "Male", age: 51, address: "Baneshwor, Kathmandu" },
-      { name: "Kiran Thapa", birthCert: "BC-2080-40697", gender: "Male", age: 45, address: "Chitwan, Bagmati" },
+    // 4. SEED CITIZENS COLLECTION (Registered Citizens / Newborns)
+    const rawCitizens = [
+      {
+        fullName: "Ram Kumar Sharma",
+        name: "Ram Kumar Sharma",
+        birthCertificateNumber: "BC-2080-94812",
+        healthId: "NP-9841-0021",
+        dob: new Date("1983-05-14"),
+        gender: "Male",
+        bloodGroup: "O+",
+        parentDetails: { fatherName: "Hari Sharma", motherName: "Gita Sharma" },
+        phone: "+977-9841234567",
+        address: { province: "Bagmati Province", district: "Kathmandu", city: "Balaju, Kathmandu" },
+      },
+      {
+        fullName: "Sita Kumari Sharma",
+        name: "Sita Kumari Sharma",
+        birthCertificateNumber: "BC-2080-84910",
+        healthId: "NP-9841-0022",
+        dob: new Date("1987-09-22"),
+        gender: "Female",
+        bloodGroup: "A+",
+        parentDetails: { fatherName: "Shyam Sharma", motherName: "Laxmi Sharma" },
+        phone: "+977-9801987654",
+        address: { province: "Bagmati Province", district: "Lalitpur", city: "Lagankhel, Lalitpur" },
+      },
+      {
+        fullName: "Aayush Nepal",
+        name: "Aayush Nepal",
+        birthCertificateNumber: "BC-2080-73920",
+        healthId: "NP-9841-0023",
+        dob: new Date("1998-01-10"),
+        gender: "Male",
+        bloodGroup: "B+",
+        parentDetails: { fatherName: "Govinda Nepal", motherName: "Sarita Nepal" },
+        phone: "+977-9860112233",
+        address: { province: "Gandaki Province", district: "Kaski", city: "Lakeside, Pokhara" },
+      },
+      {
+        fullName: "Pooja Gurung",
+        name: "Pooja Gurung",
+        birthCertificateNumber: "BC-2080-62819",
+        healthId: "NP-9841-0024",
+        dob: new Date("1994-11-05"),
+        gender: "Female",
+        bloodGroup: "AB+",
+        parentDetails: { fatherName: "Dhan Gurung", motherName: "Maya Gurung" },
+        phone: "+977-9811223344",
+        address: { province: "Gandaki Province", district: "Kaski", city: "Mahendrapool, Pokhara" },
+      },
+      {
+        fullName: "Bikash Shrestha",
+        name: "Bikash Shrestha",
+        birthCertificateNumber: "BC-2080-51708",
+        healthId: "NP-9841-0025",
+        dob: new Date("1975-03-30"),
+        gender: "Male",
+        bloodGroup: "O-",
+        parentDetails: { fatherName: "Prem Shrestha", motherName: "Radha Shrestha" },
+        phone: "+977-9851009988",
+        address: { province: "Bagmati Province", district: "Kathmandu", city: "Baneshwor, Kathmandu" },
+      },
+      {
+        fullName: "Kiran Thapa",
+        name: "Kiran Thapa",
+        birthCertificateNumber: "BC-2080-40697",
+        healthId: "NP-9841-0026",
+        dob: new Date("1981-08-18"),
+        gender: "Male",
+        bloodGroup: "A-",
+        parentDetails: { fatherName: "Surya Thapa", motherName: "Kamala Thapa" },
+        phone: "+977-9841998877",
+        address: { province: "Bagmati Province", district: "Chitwan", city: "Bharatpur, Chitwan" },
+      },
     ];
 
+    const seededCitizens = await Citizen.insertMany(rawCitizens);
+    console.log(`[SEED SUCCESS] Created ${seededCitizens.length} Citizens in 'citizens' collection!`);
+
+    // 5. SEED 30 NORMALIZED PATIENT MEDICAL RECORDS
     const symptomsList = [
       "High fasting blood glucose (139 mg/dL), persistent dry cough & fatigue",
       "Stage 1 Hypertension (142/92 mmHg), mild chest tightness & headache",
@@ -149,10 +220,10 @@ async function seedDatabase() {
 
     const patientRecords = [];
 
-    // Generate 30 records distributed across 5 hospitals
+    // Generate 30 records linked to citizenId
     for (let i = 0; i < 30; i++) {
       const hosp = seededHospitals[i % seededHospitals.length];
-      const template = patientTemplates[i % patientTemplates.length];
+      const citizen = seededCitizens[i % seededCitizens.length];
       const doctor = hosp.doctors[i % hosp.doctors.length];
       const symptom = symptomsList[i % symptomsList.length];
       const diagnosis = diagnosesList[i % diagnosesList.length];
@@ -162,18 +233,15 @@ async function seedDatabase() {
       const visitDate = new Date(Date.now() - daysAgo * 24 * 60 * 60 * 1000);
 
       patientRecords.push({
-        name: template.name,
-        age: template.age,
-        gender: template.gender,
-        address: template.address,
-        birthCertificateNumber: template.birthCert,
-        phone: "+977-9841" + Math.floor(100000 + Math.random() * 900000),
+        citizenId: citizen._id,
+        healthId: citizen.healthId,
+        birthCertificateNumber: citizen.birthCertificateNumber,
+        hospitalId: hosp._id,
+        hospitalName: hosp.hospitalName,
+        assignedDoctor: doctor,
         symptoms: symptom,
         diagnosis: diagnosis,
         prescription: prescription,
-        assignedDoctor: doctor,
-        hospitalId: hosp._id,
-        hospitalName: hosp.hospitalName,
         visitDate: visitDate,
         notes: `Clinical evaluation completed by ${doctor} at ${hosp.hospitalName}.`,
         createdAt: visitDate,
@@ -181,9 +249,9 @@ async function seedDatabase() {
     }
 
     const seededPatients = await Patient.insertMany(patientRecords);
-    console.log(`[SEED SUCCESS] Created ${seededPatients.length} Patient Records across 5 Hospitals!`);
+    console.log(`[SEED SUCCESS] Created ${seededPatients.length} Normalized Patient Records linked to Citizens!`);
 
-    console.log("[SEED COMPLETE] All 1 Admin, 5 Hospitals, 25 Doctors, and 30 Patient Records seeded successfully into MongoDB!");
+    console.log("[SEED COMPLETE] All 1 Admin, 5 Hospitals, 25 Doctors, 6 Citizens, and 30 Patient Records seeded successfully into MongoDB!");
     process.exit(0);
   } catch (err) {
     console.error("[SEED ERROR]", err);

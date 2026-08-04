@@ -2,23 +2,13 @@ const mongoose = require("mongoose");
 
 const patientSchema = new mongoose.Schema(
   {
-    name: {
-      type: String,
-      required: [true, "Patient name is required"],
-      trim: true,
+    citizenId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Citizen",
     },
-    age: {
-      type: Number,
-      required: [true, "Patient age is required"],
-    },
-    gender: {
+    healthId: {
       type: String,
-      required: [true, "Gender is required"],
-      enum: ["Male", "Female", "Other"],
-    },
-    address: {
-      type: String,
-      required: [true, "Address is required"],
+      required: [true, "Health ID is required"],
       trim: true,
     },
     birthCertificateNumber: {
@@ -27,9 +17,19 @@ const patientSchema = new mongoose.Schema(
       trim: true,
       index: true,
     },
-    phone: {
+    hospitalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Hospital",
+      required: [true, "Hospital ID is required"],
+    },
+    hospitalName: {
       type: String,
-      default: "+977-9841234567",
+      required: [true, "Hospital Name is required"],
+      trim: true,
+    },
+    assignedDoctor: {
+      type: String,
+      required: [true, "Assigned Doctor is required"],
       trim: true,
     },
     symptoms: {
@@ -44,22 +44,7 @@ const patientSchema = new mongoose.Schema(
     },
     prescription: {
       type: String,
-      default: "Metformin 500mg daily, Aerobic exercise 30 mins",
-      trim: true,
-    },
-    assignedDoctor: {
-      type: String,
-      required: [true, "Assigned Doctor is required"],
-      trim: true,
-    },
-    hospitalId: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "Hospital",
-      required: [true, "Hospital ID is required"],
-    },
-    hospitalName: {
-      type: String,
-      required: [true, "Hospital Name is required"],
+      default: "Metformin 500mg daily, Low sodium diet",
       trim: true,
     },
     visitDate: {
