@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { UserCheck, ShieldCheck, Clock, Calendar, Hospital, Stethoscope, FileText, AlertCircle, Lock, LogOut } from "lucide-react";
+import { UserCheck, ShieldCheck, Clock, Calendar, Hospital, Stethoscope, FileText, AlertCircle, Lock, LogOut, Loader2 } from "lucide-react";
 
 export default function CitizenPortal({ healthId, setHealthId }) {
   const [birthCertInput, setBirthCertInput] = useState(healthId || "BC-1111-1111");
@@ -7,87 +7,126 @@ export default function CitizenPortal({ healthId, setHealthId }) {
   const [records, setRecords] = useState([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingRecords, setIsLoadingRecords] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [apiError, setApiError] = useState("");
 
   useEffect(() => {
-    if (healthId) {
+    // Auto-login if patient token or healthId exists in localStorage
+    const savedToken = localStorage.getItem("patientToken");
+    const savedCert = localStorage.getItem("patientCert") || healthId;
+    if (savedToken && savedCert) {
+      handlePatientLogin(savedCert, savedToken);
+    } else if (healthId) {
       handlePatientLogin(healthId);
     }
   }, [healthId]);
 
-  const handlePatientLogin = async (certNumber = birthCertInput) => {
+  const handlePatientLogin = async (certNumber = birthCertInput, existingToken = null) => {
     if (!certNumber || !certNumber.trim()) return;
     setIsLoading(true);
     setErrorMsg("");
+    setApiError("");
 
     const cleanCert = certNumber.trim();
 
     try {
-      // 1. Authenticate / Fetch via POST /api/patient/login
-      const response = await fetch("http://localhost:3000/api/patient/login", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        credentials: "include",
-        body: JSON.stringify({ birthCertificateNumber: cleanCert }),
-      });
+      let token = existingToken || localStorage.getItem("patientToken");
+      let data = null;
 
-      const data = await response.json();
+      if (!existingToken) {
+        const response = await fetch("http://localhost:3000/api/patient/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ birthCertificateNumber: cleanCert }),
+        });
 
-      if (response.ok && data.success && data.patient) {
-        setIsLoggedIn(true);
-        setPatientProfile(data.patient);
-        setHealthId(cleanCert);
-        fetchPatientRecords(data.patient.birthCertificateNumber || cleanCert);
-      } else {
-        // Fallback lookup directly from citizens collection
-        await fetchCitizenLookupFallback(cleanCert);
+        data = await response.json();
+
+        if (!response.ok || !data.success) {
+          setErrorMsg(data.message || `No registered citizen or medical records found for Birth Certificate '${cleanCert}'.`);
+          setIsLoading(false);
+          return;
+        }
+
+        token = data.token;
+        if (token) {
+          localStorage.setItem("patientToken", token);
+          localStorage.setItem("patientCert", cleanCert);
+        }
       }
+
+      setIsLoggedIn(true);
+
+      if (data?.patient) {
+        setPatientProfile(data.patient);
+      } else {
+        await fetchPatientProfile(cleanCert, token);
+      }
+
+      setHealthId(cleanCert);
+      fetchPatientRecords(cleanCert, token);
     } catch (err) {
-      await fetchCitizenLookupFallback(cleanCert);
+      console.error("[PATIENT LOGIN ERROR]", err);
+      setApiError("Failed to connect to authentication backend server.");
     } finally {
       setIsLoading(false);
     }
   };
 
-  const fetchCitizenLookupFallback = async (cleanCert) => {
+  const fetchPatientProfile = async (cleanCert, token) => {
     try {
-      const response = await fetch(`http://localhost:3000/api/citizens/lookup?birthCertificateNumber=${cleanCert}`);
-      const data = await response.json();
+      const headers = { "Content-Type": "application/json" };
+      if (token) headers["Authorization"] = `Bearer ${token}`;
 
-      if (response.ok && data.found && data.citizen) {
-        setIsLoggedIn(true);
-        setPatientProfile({
-          name: data.citizen.fullName || data.citizen.name,
-          age: data.citizen.age,
-          gender: data.citizen.gender,
-          address: data.citizen.address,
-          birthCertificateNumber: data.citizen.birthCertificateNumber,
-          healthId: data.citizen.healthId,
-          phone: data.citizen.phone || "+977-9841234567",
-        });
-        setHealthId(cleanCert);
-        fetchPatientRecords(data.citizen.birthCertificateNumber || cleanCert);
-      } else {
-        setErrorMsg(`No registered citizen or medical records found for Birth Certificate '${cleanCert}'.`);
-      }
-    } catch (lookupErr) {
-      setErrorMsg(`Failed to connect to server for Birth Certificate '${cleanCert}'.`);
-    }
-  };
-
-  const fetchPatientRecords = async (certNumber) => {
-    try {
-      const response = await fetch(`http://localhost:3000/api/patient/records?birthCertificateNumber=${certNumber}`, {
+      const response = await fetch(`http://localhost:3000/api/patient/profile?birthCertificateNumber=${cleanCert}`, {
+        headers,
         credentials: "include",
       });
       const data = await response.json();
-      if (response.ok && data.records) {
-        setRecords(data.records);
+
+      if (response.ok && data.patient) {
+        setPatientProfile(data.patient);
+      } else {
+        setApiError(data.message || "Failed to fetch patient profile from database.");
       }
-    } catch (err) {}
+    } catch (err) {
+      setApiError("Error connecting to server to fetch profile.");
+    }
+  };
+
+  const fetchPatientRecords = async (certNumber, token) => {
+    setIsLoadingRecords(true);
+    setApiError("");
+    try {
+      const headers = { "Content-Type": "application/json" };
+      const activeToken = token || localStorage.getItem("patientToken");
+      if (activeToken) headers["Authorization"] = `Bearer ${activeToken}`;
+
+      const response = await fetch(`http://localhost:3000/api/patient/records?birthCertificateNumber=${certNumber}`, {
+        headers,
+        credentials: "include",
+      });
+
+      const data = await response.json();
+
+      if (response.ok && data.success && Array.isArray(data.records)) {
+        setRecords(data.records);
+      } else {
+        setApiError(data.message || "Failed to load patient medical records from server.");
+      }
+    } catch (err) {
+      console.error("[FETCH RECORDS ERROR]", err);
+      setApiError("Network error while loading medical history from database server.");
+    } finally {
+      setIsLoadingRecords(false);
+    }
   };
 
   const handleLogout = () => {
+    localStorage.removeItem("patientToken");
+    localStorage.removeItem("patientCert");
     setIsLoggedIn(false);
     setPatientProfile(null);
     setRecords([]);
@@ -131,8 +170,9 @@ export default function CitizenPortal({ healthId, setHealthId }) {
             </div>
 
             {errorMsg && (
-              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs text-center font-semibold">
-                {errorMsg}
+              <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs text-center font-semibold flex items-center space-x-2">
+                <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                <span>{errorMsg}</span>
               </div>
             )}
 
@@ -141,7 +181,14 @@ export default function CitizenPortal({ healthId, setHealthId }) {
               disabled={isLoading}
               className="w-full py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center space-x-2"
             >
-              {isLoading ? <span>Loading Medical Record...</span> : <span>Fetch Medical Timeline</span>}
+              {isLoading ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                  <span>Loading Medical Record...</span>
+                </>
+              ) : (
+                <span>Fetch Medical Timeline</span>
+              )}
             </button>
           </form>
 
@@ -185,6 +232,14 @@ export default function CitizenPortal({ healthId, setHealthId }) {
   // AUTHENTICATED: PATIENT DASHBOARD & READ-ONLY CHRONOLOGICAL TIMELINE
   return (
     <div className="space-y-8 animate-fadeIn">
+      {/* API Error Notification */}
+      {apiError && (
+        <div className="p-4 bg-red-50 border border-red-200 text-red-700 rounded-2xl text-xs font-bold flex items-center space-x-2">
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+          <span>API Error: {apiError}</span>
+        </div>
+      )}
+
       {/* Patient Profile Card (Read-Only) */}
       <div className="bg-white border border-slate-200 rounded-3xl p-6 shadow-sm space-y-6">
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
@@ -199,7 +254,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
               </span>
             </div>
             <h1 className="text-2xl font-black text-slate-900 tracking-tight mt-1">
-              {patientProfile.name}
+              {patientProfile.name || patientProfile.fullName}
             </h1>
             <p className="text-xs text-slate-500 mt-0.5">Read-Only Health Passport Linked to Central MongoDB Repository</p>
           </div>
@@ -223,7 +278,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
             <span className="text-[10px] text-slate-500 uppercase font-semibold">Full Name</span>
-            <p className="text-sm font-bold text-slate-900 mt-0.5">{patientProfile.name}</p>
+            <p className="text-sm font-bold text-slate-900 mt-0.5">{patientProfile.name || patientProfile.fullName}</p>
           </div>
           <div className="bg-slate-50 p-3.5 rounded-2xl border border-slate-200">
             <span className="text-[10px] text-slate-500 uppercase font-semibold">Age / Gender</span>
@@ -259,74 +314,81 @@ export default function CitizenPortal({ healthId, setHealthId }) {
           </span>
         </div>
 
-        {/* Vertical Timeline Tree */}
-        <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-          {records.length > 0 ? (
-            records.map((rec, idx) => (
-              <div key={rec._id || rec.id || idx} className="relative group">
-                <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-white border-2 border-teal-600 flex items-center justify-center group-hover:scale-125 transition-all shadow-sm">
-                  <div className="w-1.5 h-1.5 rounded-full bg-teal-600"></div>
-                </div>
-
-                <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all space-y-3">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
-                    <div>
-                      <span className="font-extrabold text-slate-900 text-base">{rec.diagnosis || "Clinical Visit"}</span>
-                      <div className="flex items-center space-x-3 text-xs text-slate-600 mt-1 flex-wrap">
-                        <span className="flex items-center space-x-1 font-bold text-teal-700">
-                          <Hospital className="w-3.5 h-3.5 text-teal-600" />
-                          <span>{rec.hospitalName}</span>
-                        </span>
-                        <span>•</span>
-                        <span className="flex items-center space-x-1 font-bold text-emerald-700">
-                          <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
-                          <span>Assigned Doctor: {rec.assignedDoctor}</span>
-                        </span>
-                      </div>
-                    </div>
-
-                    <span className="text-xs font-mono text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-1 shrink-0">
-                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                      <span>{new Date(rec.visitDate || rec.createdAt).toISOString().split("T")[0]}</span>
-                    </span>
+        {/* Loading Spinner / Timeline Content */}
+        {isLoadingRecords ? (
+          <div className="py-12 text-center space-y-3">
+            <Loader2 className="w-8 h-8 text-teal-600 animate-spin mx-auto" />
+            <p className="text-xs text-slate-500 font-semibold">Fetching lifelong medical records from central repository...</p>
+          </div>
+        ) : (
+          <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
+            {records.length > 0 ? (
+              records.map((rec, idx) => (
+                <div key={rec._id || rec.id || idx} className="relative group">
+                  <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-white border-2 border-teal-600 flex items-center justify-center group-hover:scale-125 transition-all shadow-sm">
+                    <div className="w-1.5 h-1.5 rounded-full bg-teal-600"></div>
                   </div>
 
-                  {/* Symptoms */}
-                  <div className="bg-amber-50/70 border border-amber-200 p-2.5 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
-                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                    <div>
-                      <strong className="text-amber-950">Patient Symptoms: </strong>
-                      <span>{rec.symptoms}</span>
-                    </div>
-                  </div>
-
-                  {/* Prescription */}
-                  {rec.prescription && (
-                    <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-900 flex items-start space-x-2">
-                      <FileText className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                  <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
                       <div>
-                        <strong className="text-emerald-950">Rx Prescription: </strong>
-                        <span>{rec.prescription}</span>
+                        <span className="font-extrabold text-slate-900 text-base">{rec.diagnosis || "Clinical Visit"}</span>
+                        <div className="flex items-center space-x-3 text-xs text-slate-600 mt-1 flex-wrap">
+                          <span className="flex items-center space-x-1 font-bold text-teal-700">
+                            <Hospital className="w-3.5 h-3.5 text-teal-600" />
+                            <span>{rec.hospitalName || "Regional Hospital"}</span>
+                          </span>
+                          <span>•</span>
+                          <span className="flex items-center space-x-1 font-bold text-emerald-700">
+                            <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                            <span>Assigned Doctor: {rec.assignedDoctor || "Attending Physician"}</span>
+                          </span>
+                        </div>
+                      </div>
+
+                      <span className="text-xs font-mono text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-1 shrink-0">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                        <span>{new Date(rec.visitDate || rec.createdAt).toISOString().split("T")[0]}</span>
+                      </span>
+                    </div>
+
+                    {/* Symptoms */}
+                    <div className="bg-amber-50/70 border border-amber-200 p-2.5 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
+                      <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-amber-950">Patient Symptoms: </strong>
+                        <span>{rec.symptoms || "Clinical symptoms recorded."}</span>
                       </div>
                     </div>
-                  )}
 
-                  {/* Clinical Notes */}
-                  {rec.notes && (
-                    <p className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200">
-                      <strong className="text-slate-900">Notes: </strong>
-                      {rec.notes}
-                    </p>
-                  )}
+                    {/* Prescription */}
+                    {rec.prescription && (
+                      <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-900 flex items-start space-x-2">
+                        <FileText className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                        <div>
+                          <strong className="text-emerald-950">Rx Prescription: </strong>
+                          <span>{rec.prescription}</span>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Clinical Notes */}
+                    {rec.notes && (
+                      <p className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200">
+                        <strong className="text-slate-900">Notes: </strong>
+                        {rec.notes}
+                      </p>
+                    )}
+                  </div>
                 </div>
+              ))
+            ) : (
+              <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-500 italic">
+                No medical records found for this patient yet.
               </div>
-            ))
-          ) : (
-            <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-500 italic">
-              No recorded medical visits found for this patient yet.
-            </div>
-          )}
-        </div>
+            )}
+          </div>
+        )}
       </div>
     </div>
   );

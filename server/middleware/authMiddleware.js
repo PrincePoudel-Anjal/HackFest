@@ -20,4 +20,47 @@ const protectAdmin = (req, res, next) => {
   }
 };
 
-module.exports = { protectAdmin, JWT_SECRET };
+// Protect Patient Routes & Decode JWT Payload into req.user
+const protectPatient = (req, res, next) => {
+  let token = req.cookies?.patientToken || req.cookies?.token;
+
+  if (req.headers.authorization && req.headers.authorization.startsWith("Bearer ")) {
+    token = req.headers.authorization.split(" ")[1];
+  }
+
+  if (!token) {
+    // If query string has birthCertificateNumber, allow req.user fallback
+    if (req.query.birthCertificateNumber || req.query.healthId) {
+      req.user = {
+        birthCertificateNumber: req.query.birthCertificateNumber,
+        healthId: req.query.healthId,
+      };
+      return next();
+    }
+
+    return res.status(401).json({
+      success: false,
+      message: "Not authorized: Missing Bearer Token or cookie authentication.",
+    });
+  }
+
+  try {
+    const decoded = jwt.verify(token, JWT_SECRET);
+    req.user = decoded;
+    next();
+  } catch (error) {
+    if (req.query.birthCertificateNumber || req.query.healthId) {
+      req.user = {
+        birthCertificateNumber: req.query.birthCertificateNumber,
+        healthId: req.query.healthId,
+      };
+      return next();
+    }
+    return res.status(401).json({
+      success: false,
+      message: "Not authorized: Invalid or expired token.",
+    });
+  }
+};
+
+module.exports = { protectAdmin, protectPatient, JWT_SECRET };
