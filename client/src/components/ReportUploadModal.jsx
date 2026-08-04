@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { X, FilePlus, Activity, Stethoscope, User, Hospital, AlertCircle, CheckCircle2 } from "lucide-react";
+import { X, FilePlus, Activity, Stethoscope, User, Hospital, AlertCircle, CheckCircle2, ShieldCheck, Phone, MapPin } from "lucide-react";
 
 export default function ReportUploadModal({ isOpen, onClose, onAddReport, healthId }) {
-  // Read active hospital session
+  // Active hospital session read from cookie / localstorage
   const [activeHospitalName, setActiveHospitalName] = useState(() => {
     const saved = localStorage.getItem("hospital_session");
     if (saved) {
@@ -14,30 +14,33 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
     return "Tribhuvan University Teaching Hospital (TUTH)";
   });
 
-  // State for doctors belonging to THIS hospital from MongoDB database
+  // State for doctors belonging to this hospital in MongoDB
   const [hospitalDoctors, setHospitalDoctors] = useState([]);
   const [isLoadingDoctors, setIsLoadingDoctors] = useState(false);
 
+  // User / Patient Details Form State
   const [formData, setFormData] = useState({
     patientName: "Ram Kumar Sharma",
     birthCertificateNumber: healthId || "BC-2080-94812",
     age: 43,
     gender: "Male",
     bloodGroup: "O+",
+    phone: "+977-9841234567",
+    address: "Kathmandu, Bagmati Province",
     assignedDoctor: "",
     symptoms: "High fasting blood glucose (139 mg/dL), persistent dry cough, headache & fatigue over 2 weeks",
-    title: "Clinical Metabolic & Diagnostic Assessment",
+    title: "Clinical Diagnostic Assessment Report",
     bloodSugar: 139,
     hba1c: 6.8,
     bp: "142/92",
     eGFR: 87,
-    notes: "Patient advised on glycemic control, daily 30-min aerobic exercise, and low-sodium diet.",
+    notes: "Patient advised on glycemic control, 30-min daily exercise, and dietary modifications.",
   });
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Fetch doctors belonging to THIS specific hospital from MongoDB database on open
+  // Fetch doctors belonging to active hospital from MongoDB on open
   useEffect(() => {
     if (isOpen) {
       let currentHospName = activeHospitalName;
@@ -58,7 +61,6 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
           const response = await fetch("http://localhost:3000/api/admin/doctors");
           const data = await response.json();
           if (response.ok && data.doctors && data.doctors.length > 0) {
-            // Filter doctors belonging to THIS hospital in MongoDB
             const matchedDocs = data.doctors.filter(
               (d) => d.hospitalName?.toLowerCase() === currentHospName.toLowerCase()
             );
@@ -66,7 +68,6 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
             const finalDocList = matchedDocs.length > 0 ? matchedDocs : data.doctors;
             setHospitalDoctors(finalDocList);
 
-            // Default select first doctor from DB
             const firstDoc = finalDocList[0];
             setFormData((prev) => ({
               ...prev,
@@ -74,7 +75,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
             }));
           } else {
             const fallback = [
-              { name: "Dr. Sushil Adhikari", licenseNumber: "NMC-18492", specialty: "Diabetology" },
+              { name: "Dr. Sushil Adhikari", licenseNumber: "NMC-18492", specialty: "Internal Medicine" },
               { name: "Dr. Anish Shrestha", licenseNumber: "NMC-22104", specialty: "Cardiology" },
             ];
             setHospitalDoctors(fallback);
@@ -82,7 +83,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
           }
         } catch (err) {
           const fallback = [
-            { name: "Dr. Sushil Adhikari", licenseNumber: "NMC-18492", specialty: "Diabetology" },
+            { name: "Dr. Sushil Adhikari", licenseNumber: "NMC-18492", specialty: "Internal Medicine" },
           ];
           setHospitalDoctors(fallback);
           setFormData((prev) => ({ ...prev, assignedDoctor: "Dr. Sushil Adhikari (NMC-18492)" }));
@@ -107,7 +108,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
       birthCertificateNumber: formData.birthCertificateNumber.trim(),
       assignedDoctor: formData.assignedDoctor.trim(),
       symptoms: formData.symptoms.trim(),
-      assignedHospital: activeHospitalName,
+      assignedHospital: activeHospitalName, // Passed & verified by HTTP Cookie on server
       healthId: formData.birthCertificateNumber || healthId,
       title: formData.title,
       category: "Blood Test",
@@ -124,7 +125,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
       const response = await fetch("http://localhost:3000/api/reports/upload", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        credentials: "include",
+        credentials: "include", // SENDS HOSPITAL HTTP-ONLY COOKIE AUTOMATICALLY
         body: JSON.stringify(payload),
       });
 
@@ -185,18 +186,24 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
     <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-sm flex items-center justify-center p-4">
       <div className="bg-white border border-slate-200 rounded-3xl max-w-2xl w-full p-7 shadow-2xl space-y-6 animate-fadeIn max-h-[92vh] overflow-y-auto">
         
-        {/* Header */}
+        {/* Modal Top Header */}
         <div className="flex items-center justify-between border-b border-slate-100 pb-4">
           <div className="flex items-center space-x-3">
             <div className="w-10 h-10 rounded-2xl bg-teal-50 text-teal-600 border border-teal-200 flex items-center justify-center font-bold">
               <FilePlus className="w-5 h-5 text-teal-600" />
             </div>
             <div>
-              <h3 className="text-lg font-black text-slate-900 tracking-tight">New Patient Diagnostic Entry</h3>
-              <p className="text-xs text-teal-700 font-semibold flex items-center space-x-1.5 mt-0.5">
-                <Hospital className="w-3.5 h-3.5" />
-                <span>Node: {activeHospitalName}</span>
-              </p>
+              <h3 className="text-lg font-black text-slate-900 tracking-tight">Assign Patient Diagnostic Report</h3>
+              <div className="flex items-center space-x-2 mt-0.5">
+                <span className="text-xs text-teal-700 font-semibold flex items-center space-x-1">
+                  <Hospital className="w-3.5 h-3.5" />
+                  <span>{activeHospitalName}</span>
+                </span>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 font-bold border border-emerald-200 flex items-center space-x-1">
+                  <ShieldCheck className="w-3 h-3" />
+                  <span>Assigned via HTTP Session Cookie</span>
+                </span>
+              </div>
             </div>
           </div>
           <button
@@ -216,12 +223,12 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
 
         <form onSubmit={handleSubmit} className="space-y-6">
           
-          {/* SECTION 1: Patient Identification */}
-          <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
-            <div className="flex items-center space-x-2 border-b border-slate-200/80 pb-2">
+          {/* SECTION 1: USER / PATIENT DETAILS */}
+          <div className="bg-slate-50/80 p-4.5 rounded-2xl border border-slate-200 space-y-4">
+            <div className="flex items-center space-x-2 border-b border-slate-200/80 pb-2.5">
               <User className="w-4 h-4 text-teal-600" />
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-                1. Patient Demographics & Identification
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
+                1. Patient / User Identification Details
               </h4>
             </div>
 
@@ -254,24 +261,71 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
                 />
               </div>
             </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Age (Years)</label>
+                <input
+                  type="number"
+                  value={formData.age}
+                  onChange={(e) => setFormData({ ...formData, age: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Gender</label>
+                <select
+                  value={formData.gender}
+                  onChange={(e) => setFormData({ ...formData, gender: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-bold"
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Blood Group</label>
+                <select
+                  value={formData.bloodGroup}
+                  onChange={(e) => setFormData({ ...formData, bloodGroup: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-red-600 font-bold"
+                >
+                  <option value="O+">O+</option>
+                  <option value="A+">A+</option>
+                  <option value="B+">B+</option>
+                  <option value="AB+">AB+</option>
+                  <option value="O-">O-</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-[10px] font-semibold text-slate-500 mb-1">Phone Contact</label>
+                <input
+                  type="text"
+                  value={formData.phone}
+                  onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
+                  className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-xs text-slate-900 font-semibold"
+                />
+              </div>
+            </div>
           </div>
 
-          {/* SECTION 2: Doctors belonging to THIS hospital in MongoDB */}
-          <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
+          {/* SECTION 2: ASSIGNED DOCTOR & COOKIE HOSPITAL */}
+          <div className="bg-slate-50/80 p-4.5 rounded-2xl border border-slate-200 space-y-3">
             <div className="flex items-center space-x-2 border-b border-slate-200/80 pb-2">
               <Stethoscope className="w-4 h-4 text-emerald-600" />
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-                2. Assigned Doctor for {activeHospitalName} (MongoDB Database)
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
+                2. Practitioner & Cookie-Assigned Hospital Node
               </h4>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">
-                  Select Doctor Belonging to Node <span className="text-red-500">*</span>
+                  Select Assigned Doctor (MongoDB Database) <span className="text-red-500">*</span>
                 </label>
                 {isLoadingDoctors ? (
-                  <div className="text-xs text-slate-400 py-2">Loading doctors for {activeHospitalName}...</div>
+                  <div className="text-xs text-slate-400 py-2">Loading hospital doctors...</div>
                 ) : (
                   <select
                     value={formData.assignedDoctor}
@@ -292,22 +346,27 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-700 mb-1">Hospital Node</label>
-                <input
-                  type="text"
-                  value={activeHospitalName}
-                  readOnly
-                  className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-teal-800 font-bold cursor-not-allowed"
-                />
+                <label className="block text-xs font-semibold text-slate-700 mb-1">
+                  Assigned Hospital Node (Via HTTP Session Cookie)
+                </label>
+                <div className="relative">
+                  <Hospital className="w-3.5 h-3.5 text-teal-600 absolute left-3 top-3" />
+                  <input
+                    type="text"
+                    value={activeHospitalName}
+                    readOnly
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl pl-9 pr-3 py-2.5 text-xs text-teal-800 font-bold cursor-not-allowed shadow-inner"
+                  />
+                </div>
               </div>
             </div>
           </div>
 
-          {/* SECTION 3: Symptoms & Complaints */}
-          <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-2">
+          {/* SECTION 3: SYMPTOMS & CLINICAL COMPLAINTS */}
+          <div className="bg-slate-50/80 p-4.5 rounded-2xl border border-slate-200 space-y-2">
             <div className="flex items-center space-x-2 border-b border-slate-200/80 pb-2">
               <AlertCircle className="w-4 h-4 text-amber-600" />
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
                 3. Patient Symptoms & Chief Complaints <span className="text-red-500">*</span>
               </h4>
             </div>
@@ -316,18 +375,18 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
               rows={2}
               value={formData.symptoms}
               onChange={(e) => setFormData({ ...formData, symptoms: e.target.value })}
-              placeholder="Describe real-world patient symptoms e.g. High fasting glucose, chest tightness, fever, fatigue..."
+              placeholder="Describe real-world patient symptoms e.g. High blood glucose, dry cough, fever, fatigue..."
               className="w-full bg-white border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-900 focus:outline-none focus:border-teal-600 shadow-sm"
               required
             />
           </div>
 
-          {/* SECTION 4: Diagnostic Lab Markers */}
-          <div className="bg-slate-50/70 p-4 rounded-2xl border border-slate-200 space-y-3">
+          {/* SECTION 4: DIAGNOSTIC METRICS & NOTES */}
+          <div className="bg-slate-50/80 p-4.5 rounded-2xl border border-slate-200 space-y-3">
             <div className="flex items-center space-x-2 border-b border-slate-200/80 pb-2">
               <Activity className="w-4 h-4 text-teal-600" />
-              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-700">
-                4. Diagnostic Lab Markers & Vital Metrics
+              <h4 className="text-xs font-extrabold uppercase tracking-wider text-slate-800">
+                4. Diagnostic Lab Markers & Vitals
               </h4>
             </div>
 
@@ -372,9 +431,8 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
             </div>
           </div>
 
-          {/* SECTION 5: Physician Notes */}
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Physician Clinical Notes & Recommendations</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Physician Clinical Notes</label>
             <textarea
               rows={2}
               value={formData.notes}
@@ -402,7 +460,7 @@ export default function ReportUploadModal({ isOpen, onClose, onAddReport, health
               ) : (
                 <>
                   <CheckCircle2 className="w-4 h-4" />
-                  <span>Save Report to Database</span>
+                  <span>Assign Report & Save to MongoDB</span>
                 </>
               )}
             </button>
