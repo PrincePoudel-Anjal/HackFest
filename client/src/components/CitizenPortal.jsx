@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { UserCheck, ShieldCheck, Clock, Calendar, Hospital, Stethoscope, FileText, AlertCircle, Lock, LogOut } from "lucide-react";
 
 export default function CitizenPortal({ healthId, setHealthId }) {
-  const [birthCertInput, setBirthCertInput] = useState(healthId || "BC-2080-94812");
+  const [birthCertInput, setBirthCertInput] = useState(healthId || "BC-1111-1111");
   const [patientProfile, setPatientProfile] = useState(null);
   const [records, setRecords] = useState([]);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -37,9 +37,9 @@ export default function CitizenPortal({ healthId, setHealthId }) {
         setIsLoggedIn(true);
         setPatientProfile(data.patient);
         setHealthId(cleanCert);
-        fetchPatientRecords(cleanCert);
+        fetchPatientRecords(data.patient.birthCertificateNumber || cleanCert);
       } else {
-        // Try fallback lookup directly from citizens collection
+        // Fallback lookup directly from citizens collection
         await fetchCitizenLookupFallback(cleanCert);
       }
     } catch (err) {
@@ -66,7 +66,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
           phone: data.citizen.phone || "+977-9841234567",
         });
         setHealthId(cleanCert);
-        fetchPatientRecords(cleanCert);
+        fetchPatientRecords(data.citizen.birthCertificateNumber || cleanCert);
       } else {
         setErrorMsg(`No registered citizen or medical records found for Birth Certificate '${cleanCert}'.`);
       }
@@ -124,7 +124,7 @@ export default function CitizenPortal({ healthId, setHealthId }) {
                 type="text"
                 value={birthCertInput}
                 onChange={(e) => setBirthCertInput(e.target.value)}
-                placeholder="e.g. BC-2080-94812"
+                placeholder="e.g. BC-1111-1111 or BC-2080-94812"
                 className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-teal-800 font-mono font-bold focus:outline-none focus:border-teal-600"
                 required
               />
@@ -150,6 +150,15 @@ export default function CitizenPortal({ healthId, setHealthId }) {
             <div className="flex flex-wrap gap-1.5 mt-1.5">
               <button
                 onClick={() => {
+                  setBirthCertInput("BC-1111-1111");
+                  handlePatientLogin("BC-1111-1111");
+                }}
+                className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
+              >
+                Samir Bhandari (BC-1111-1111)
+              </button>
+              <button
+                onClick={() => {
                   setBirthCertInput("BC-2080-94812");
                   handlePatientLogin("BC-2080-94812");
                 }}
@@ -165,15 +174,6 @@ export default function CitizenPortal({ healthId, setHealthId }) {
                 className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
               >
                 Sita Kumari (BC-2080-84910)
-              </button>
-              <button
-                onClick={() => {
-                  setBirthCertInput("BC-2080-73920");
-                  handlePatientLogin("BC-2080-73920");
-                }}
-                className="text-teal-800 bg-teal-50 px-2 py-0.5 rounded border border-teal-200 font-mono font-bold text-[10px]"
-              >
-                Aayush Nepal (BC-2080-73920)
               </button>
             </div>
           </div>
@@ -261,65 +261,71 @@ export default function CitizenPortal({ healthId, setHealthId }) {
 
         {/* Vertical Timeline Tree */}
         <div className="relative pl-6 space-y-6 before:absolute before:left-2.5 before:top-2 before:bottom-2 before:w-0.5 before:bg-slate-200">
-          {records.map((rec, idx) => (
-            <div key={rec._id || rec.id || idx} className="relative group">
-              <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-white border-2 border-teal-600 flex items-center justify-center group-hover:scale-125 transition-all shadow-sm">
-                <div className="w-1.5 h-1.5 rounded-full bg-teal-600"></div>
-              </div>
-
-              <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
-                  <div>
-                    <span className="font-extrabold text-slate-900 text-base">{rec.diagnosis || "Clinical Visit"}</span>
-                    <div className="flex items-center space-x-3 text-xs text-slate-600 mt-1 flex-wrap">
-                      <span className="flex items-center space-x-1 font-bold text-teal-700">
-                        <Hospital className="w-3.5 h-3.5 text-teal-600" />
-                        <span>{rec.hospitalName}</span>
-                      </span>
-                      <span>•</span>
-                      <span className="flex items-center space-x-1 font-bold text-emerald-700">
-                        <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Assigned Doctor: {rec.assignedDoctor}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  <span className="text-xs font-mono text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-1 shrink-0">
-                    <Calendar className="w-3.5 h-3.5 text-slate-400" />
-                    <span>{new Date(rec.visitDate || rec.createdAt).toISOString().split("T")[0]}</span>
-                  </span>
+          {records.length > 0 ? (
+            records.map((rec, idx) => (
+              <div key={rec._id || rec.id || idx} className="relative group">
+                <div className="absolute -left-6 top-1.5 w-5 h-5 rounded-full bg-white border-2 border-teal-600 flex items-center justify-center group-hover:scale-125 transition-all shadow-sm">
+                  <div className="w-1.5 h-1.5 rounded-full bg-teal-600"></div>
                 </div>
 
-                {/* Symptoms */}
-                <div className="bg-amber-50/70 border border-amber-200 p-2.5 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
-                  <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="text-amber-950">Patient Symptoms: </strong>
-                    <span>{rec.symptoms}</span>
-                  </div>
-                </div>
-
-                {/* Prescription */}
-                {rec.prescription && (
-                  <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-900 flex items-start space-x-2">
-                    <FileText className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                <div className="bg-slate-50/80 border border-slate-200 rounded-2xl p-5 hover:border-slate-300 transition-all space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200/80 pb-3">
                     <div>
-                      <strong className="text-emerald-950">Rx Prescription: </strong>
-                      <span>{rec.prescription}</span>
+                      <span className="font-extrabold text-slate-900 text-base">{rec.diagnosis || "Clinical Visit"}</span>
+                      <div className="flex items-center space-x-3 text-xs text-slate-600 mt-1 flex-wrap">
+                        <span className="flex items-center space-x-1 font-bold text-teal-700">
+                          <Hospital className="w-3.5 h-3.5 text-teal-600" />
+                          <span>{rec.hospitalName}</span>
+                        </span>
+                        <span>•</span>
+                        <span className="flex items-center space-x-1 font-bold text-emerald-700">
+                          <Stethoscope className="w-3.5 h-3.5 text-emerald-600" />
+                          <span>Assigned Doctor: {rec.assignedDoctor}</span>
+                        </span>
+                      </div>
+                    </div>
+
+                    <span className="text-xs font-mono text-slate-600 bg-white px-3 py-1 rounded-lg border border-slate-200 flex items-center space-x-1 shrink-0">
+                      <Calendar className="w-3.5 h-3.5 text-slate-400" />
+                      <span>{new Date(rec.visitDate || rec.createdAt).toISOString().split("T")[0]}</span>
+                    </span>
+                  </div>
+
+                  {/* Symptoms */}
+                  <div className="bg-amber-50/70 border border-amber-200 p-2.5 rounded-xl text-xs text-amber-900 flex items-start space-x-2">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+                    <div>
+                      <strong className="text-amber-950">Patient Symptoms: </strong>
+                      <span>{rec.symptoms}</span>
                     </div>
                   </div>
-                )}
 
-                {/* Clinical Notes */}
-                {rec.notes && (
-                  <p className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200">
-                    <strong className="text-slate-900">Notes: </strong>
-                    {rec.notes}
-                  </p>
-                )}
+                  {/* Prescription */}
+                  {rec.prescription && (
+                    <div className="bg-emerald-50/70 border border-emerald-200 p-2.5 rounded-xl text-xs text-emerald-900 flex items-start space-x-2">
+                      <FileText className="w-4 h-4 text-emerald-600 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="text-emerald-950">Rx Prescription: </strong>
+                        <span>{rec.prescription}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Clinical Notes */}
+                  {rec.notes && (
+                    <p className="text-xs text-slate-700 bg-white p-2.5 rounded-xl border border-slate-200">
+                      <strong className="text-slate-900">Notes: </strong>
+                      {rec.notes}
+                    </p>
+                  )}
+                </div>
               </div>
+            ))
+          ) : (
+            <div className="p-6 bg-slate-50 border border-slate-200 rounded-2xl text-center text-xs text-slate-500 italic">
+              No recorded medical visits found for this patient yet.
             </div>
-          ))}
+          )}
         </div>
       </div>
     </div>
