@@ -3,10 +3,10 @@ import { Activity, ShieldCheck, UserCheck, Hospital, ShieldAlert, Sparkles } fro
 
 export default function Navbar({ activePortal, setActivePortal, healthId }) {
   return (
-    <header className="bg-white/90 backdrop-blur-md border-b border-slate-200 text-slate-900 sticky top-0 z-50 shadow-sm">
+    <header className="bg-white/95 backdrop-blur-md border-b border-slate-200 text-slate-900 sticky top-0 z-50 shadow-sm">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
         
-        {/* Brand & Vision */}
+        {/* Brand Header */}
         <div className="flex items-center space-x-3">
           <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-teal-600 via-emerald-500 to-teal-500 p-0.5 shadow-md shadow-teal-500/20">
             <div className="w-full h-full bg-white rounded-[10px] flex items-center justify-center font-black text-teal-600 text-lg">
@@ -18,13 +18,13 @@ export default function Navbar({ activePortal, setActivePortal, healthId }) {
               <span className="font-extrabold text-lg tracking-tight text-slate-900">
                 LifeTrack Nepal
               </span>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 font-semibold border border-teal-200 flex items-center space-x-1">
+              <span className="text-[10px] px-2.5 py-0.5 rounded-full bg-teal-50 text-teal-700 font-semibold border border-teal-200 flex items-center space-x-1">
                 <Sparkles className="w-2.5 h-2.5" />
-                <span>AI Health Intelligence</span>
+                <span>EHR MVP Platform</span>
               </span>
             </div>
             <p className="text-[11px] text-slate-500 hidden sm:block">
-              Lifelong Electronic Health Record (EHR) Infrastructure
+              National Health Intelligence & Healthcare Record System
             </p>
           </div>
         </div>
@@ -34,11 +34,11 @@ export default function Navbar({ activePortal, setActivePortal, healthId }) {
           <ShieldCheck className="w-4 h-4 text-teal-600" />
           <span className="text-[11px] text-slate-500 uppercase font-semibold">National Health ID:</span>
           <span className="text-xs font-mono font-bold text-teal-700 bg-white px-2 py-0.5 rounded border border-slate-200">
-            {healthId}
+            {healthId || "BC-2080-94812"}
           </span>
         </div>
 
-        {/* 3 Portal Tabs Switcher */}
+        {/* 3 Portal Switcher Tabs */}
         <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200 space-x-1">
           <button
             onClick={() => setActivePortal("citizen")}
@@ -49,7 +49,7 @@ export default function Navbar({ activePortal, setActivePortal, healthId }) {
             }`}
           >
             <UserCheck className="w-3.5 h-3.5" />
-            <span>Citizen View</span>
+            <span>Patient Portal</span>
           </button>
 
           <button
@@ -73,7 +73,7 @@ export default function Navbar({ activePortal, setActivePortal, healthId }) {
             }`}
           >
             <ShieldAlert className="w-3.5 h-3.5 text-amber-500" />
-            <span>Manager Admin</span>
+            <span>Admin Portal</span>
           </button>
         </div>
       </div>

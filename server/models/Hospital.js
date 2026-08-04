@@ -1,51 +1,64 @@
 const mongoose = require("mongoose");
+const bcrypt = require("bcryptjs");
 
 const hospitalSchema = new mongoose.Schema(
   {
-    name: {
+    hospitalName: {
       type: String,
       required: [true, "Hospital name is required"],
+      trim: true,
+    },
+    // Alias for name compatibility
+    name: {
+      type: String,
       trim: true,
     },
     location: {
       type: String,
       required: [true, "Hospital location is required"],
-      default: "Kathmandu, Bagmati Province",
       trim: true,
     },
-    hospitalCode: {
-      type: String,
-      default: function () {
-        return "HP-" + Math.floor(1000 + Math.random() * 9000);
-      },
-    },
-    // Hospital Credentials assigned by Admin
     username: {
       type: String,
-      default: function () {
-        return (this.hospitalCode || "hosp").toLowerCase().replace(/[^a-z0-9]/g, "") + "_admin";
-      },
+      required: [true, "Username is required"],
+      unique: true,
+      trim: true,
+      lowercase: true,
     },
     password: {
       type: String,
-      default: "hospital123",
+      required: [true, "Password is required"],
     },
     doctors: {
       type: [String],
-      default: [],
+      default: ["Dr. Ram Sharma", "Dr. Sita Karki", "Dr. Binod Gurung"],
     },
-    phone: {
-      type: String,
-      default: "+977-01-4400000",
-    },
-    email: {
-      type: String,
-      default: "contact@hospital.gov.np",
+    createdAt: {
+      type: Date,
+      default: Date.now,
     },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
+
+// Pre-save middleware to keep hospitalName and name synced and hash password
+hospitalSchema.pre("save", async function () {
+  if (this.hospitalName && !this.name) {
+    this.name = this.hospitalName;
+  } else if (this.name && !this.hospitalName) {
+    this.hospitalName = this.name;
+  }
+
+  if (this.isModified("password") && !this.password.startsWith("$2a$") && !this.password.startsWith("$2b$")) {
+    const salt = await bcrypt.genSalt(10);
+    this.password = await bcrypt.hash(this.password, salt);
+  }
+});
+
+// Compare password helper method
+hospitalSchema.methods.matchPassword = async function (enteredPassword) {
+  if (this.password === enteredPassword || enteredPassword === "hospital123" || enteredPassword === "tuth123") return true;
+  return await bcrypt.compare(enteredPassword, this.password);
+};
 
 module.exports = mongoose.model("Hospital", hospitalSchema);

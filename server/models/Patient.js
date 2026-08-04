@@ -25,23 +25,31 @@ const patientSchema = new mongoose.Schema(
       type: String,
       required: [true, "Birth Certificate Number is required"],
       trim: true,
+      index: true,
+    },
+    phone: {
+      type: String,
+      default: "+977-9841234567",
+      trim: true,
     },
     symptoms: {
       type: String,
       required: [true, "Symptoms are required"],
       trim: true,
     },
+    diagnosis: {
+      type: String,
+      default: "Clinical Diagnostic Assessment",
+      trim: true,
+    },
+    prescription: {
+      type: String,
+      default: "Metformin 500mg daily, Aerobic exercise 30 mins",
+      trim: true,
+    },
     assignedDoctor: {
       type: String,
       required: [true, "Assigned Doctor is required"],
-      trim: true,
-    },
-    diagnosis: {
-      type: String,
-      trim: true,
-    },
-    notes: {
-      type: String,
       trim: true,
     },
     hospitalId: {
@@ -52,6 +60,15 @@ const patientSchema = new mongoose.Schema(
     hospitalName: {
       type: String,
       required: [true, "Hospital Name is required"],
+      trim: true,
+    },
+    visitDate: {
+      type: Date,
+      default: Date.now,
+    },
+    notes: {
+      type: String,
+      default: "",
       trim: true,
     },
     createdAt: {

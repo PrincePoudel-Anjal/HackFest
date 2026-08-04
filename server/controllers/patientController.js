@@ -1,13 +1,122 @@
 const Patient = require("../models/Patient");
 const Hospital = require("../models/Hospital");
-const MedicalReport = require("../models/MedicalReport");
 const jwt = require("jsonwebtoken");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
 
 /**
- * @desc    Create & Save New Patient Record into MongoDB "patients" Collection
- * @route   POST /api/patients
- * @access  Hospital Node Staff
+ * @desc    POST /api/patient/login
+ *          Patient logs in using Birth Certificate Number only (No password for MVP)
+ */
+exports.patientLogin = async (req, res, next) => {
+  try {
+    const { birthCertificateNumber } = req.body;
+
+    if (!birthCertificateNumber || !birthCertificateNumber.trim()) {
+      return res.status(400).json({
+        success: false,
+        message: "Birth Certificate Number is required to log in.",
+      });
+    }
+
+    const cleanCert = birthCertificateNumber.trim();
+
+    // Query patient record in MongoDB
+    const patientRecord = await Patient.findOne({
+      $or: [
+        { birthCertificateNumber: cleanCert },
+        { birthCertificateNumber: { $regex: cleanCert, $options: "i" } },
+      ],
+    });
+
+    if (!patientRecord) {
+      return res.status(404).json({
+        success: false,
+        message: `No medical records found for Birth Certificate Number '${cleanCert}'.`,
+      });
+    }
+
+    // Generate temporary JWT after successful lookup
+    const token = jwt.sign(
+      { id: patientRecord._id, birthCertificateNumber: patientRecord.birthCertificateNumber, role: "Patient" },
+      JWT_SECRET,
+      { expiresIn: "12h" }
+    );
+
+    res.cookie("patientToken", token, { httpOnly: true, sameSite: "lax" });
+
+    return res.status(200).json({
+      success: true,
+      message: `Welcome ${patientRecord.name}! Medical history loaded successfully.`,
+      token,
+      patient: {
+        name: patientRecord.name,
+        age: patientRecord.age,
+        gender: patientRecord.gender,
+        address: patientRecord.address,
+        birthCertificateNumber: patientRecord.birthCertificateNumber,
+        phone: patientRecord.phone,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    GET /api/patient/profile
+ */
+exports.getPatientProfile = async (req, res, next) => {
+  try {
+    const birthCert = req.query.birthCertificateNumber || req.params.birthCert || "BC-2080-94812";
+
+    const patient = await Patient.findOne({ birthCertificateNumber: birthCert });
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient profile not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      patient: {
+        name: patient.name,
+        age: patient.age,
+        gender: patient.gender,
+        address: patient.address,
+        birthCertificateNumber: patient.birthCertificateNumber,
+        phone: patient.phone,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    GET /api/patient/records
+ *          Returns all medical records for the logged in patient ordered newest to oldest (visitDate descending)
+ */
+exports.getPatientRecords = async (req, res, next) => {
+  try {
+    const birthCert = req.query.birthCertificateNumber || req.params.birthCert || "BC-2080-94812";
+
+    const records = await Patient.find({ birthCertificateNumber: birthCert })
+      .sort({ visitDate: -1, createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: records.length,
+      records,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    POST /api/patients
+ *          Hospital creates a new patient record
  */
 exports.createPatient = async (req, res, next) => {
   try {
@@ -17,74 +126,33 @@ exports.createPatient = async (req, res, next) => {
       gender,
       address,
       birthCertificateNumber,
+      phone,
       symptoms,
-      assignedDoctor,
       diagnosis,
+      prescription,
+      assignedDoctor,
       notes,
+      visitDate,
     } = req.body;
 
-    // 1. INPUT VALIDATIONS
-    if (!name || typeof name !== "string" || !name.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'name' is required and must be a non-empty string.",
-      });
-    }
+    // Validations
+    if (!name || !name.trim()) return res.status(400).json({ success: false, message: "Full Name is required." });
+    if (age === undefined || isNaN(Number(age))) return res.status(400).json({ success: false, message: "Valid Age is required." });
+    if (!gender || !gender.trim()) return res.status(400).json({ success: false, message: "Gender is required." });
+    if (!address || !address.trim()) return res.status(400).json({ success: false, message: "Address is required." });
+    if (!birthCertificateNumber || !birthCertificateNumber.trim()) return res.status(400).json({ success: false, message: "Birth Certificate Number is required." });
+    if (!symptoms || !symptoms.trim()) return res.status(400).json({ success: false, message: "Symptoms are required." });
+    if (!assignedDoctor || !assignedDoctor.trim()) return res.status(400).json({ success: false, message: "Assigned Doctor is required." });
 
-    if (age === undefined || age === null || isNaN(Number(age))) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'age' is required and must be a valid number.",
-      });
-    }
-
-    if (!gender || typeof gender !== "string" || !gender.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'gender' is required.",
-      });
-    }
-
-    if (!address || typeof address !== "string" || !address.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'address' is required.",
-      });
-    }
-
-    if (!birthCertificateNumber || typeof birthCertificateNumber !== "string" || !birthCertificateNumber.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'birthCertificateNumber' is required.",
-      });
-    }
-
-    if (!symptoms || typeof symptoms !== "string" || !symptoms.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'symptoms' is required.",
-      });
-    }
-
-    if (!assignedDoctor || typeof assignedDoctor !== "string" || !assignedDoctor.trim()) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation Error: 'assignedDoctor' is required.",
-      });
-    }
-
-    // 2. EXTRACT LOGGED-IN HOSPITAL FROM COOKIE SESSION OR DATABASE
+    // Extract logged-in hospital from cookie or database
     let hospitalDoc = null;
     const token = req.cookies?.hospitalToken;
 
     if (token) {
       try {
         const decoded = jwt.verify(token, JWT_SECRET);
-        if (decoded?.id) {
-          hospitalDoc = await Hospital.findById(decoded.id);
-        } else if (decoded?.name) {
-          hospitalDoc = await Hospital.findOne({ name: decoded.name });
-        }
+        if (decoded?.id) hospitalDoc = await Hospital.findById(decoded.id);
+        else if (decoded?.name) hospitalDoc = await Hospital.findOne({ name: decoded.name });
       } catch (err) {}
     }
 
@@ -93,94 +161,151 @@ exports.createPatient = async (req, res, next) => {
     }
 
     if (!hospitalDoc) {
-      return res.status(500).json({
-        success: false,
-        message: "Database Error: Active hospital node could not be resolved.",
-      });
+      return res.status(500).json({ success: false, message: "No active hospital found in database." });
     }
 
-    // 3. CREATE & SAVE PATIENT RECORD IN MONGO DB ("patients" collection)
+    // Save Patient Record into "patients" collection
     const newPatient = await Patient.create({
       name: name.trim(),
       age: Number(age),
       gender: gender.trim(),
       address: address.trim(),
       birthCertificateNumber: birthCertificateNumber.trim(),
+      phone: phone ? phone.trim() : "+977-9841234567",
       symptoms: symptoms.trim(),
+      diagnosis: diagnosis ? diagnosis.trim() : "Clinical Diagnostic Assessment",
+      prescription: prescription ? prescription.trim() : "Metformin 500mg daily, Low sodium diet",
       assignedDoctor: assignedDoctor.trim(),
-      diagnosis: diagnosis ? diagnosis.trim() : "",
-      notes: notes ? notes.trim() : "",
       hospitalId: hospitalDoc._id,
-      hospitalName: hospitalDoc.name,
-      createdAt: new Date(),
+      hospitalName: hospitalDoc.hospitalName || hospitalDoc.name,
+      notes: notes ? notes.trim() : "",
+      visitDate: visitDate ? new Date(visitDate) : new Date(),
     });
 
-    console.log(`[PATIENT RECORD CREATED] Saved Patient '${newPatient.name}' (_id: ${newPatient._id}) under Hospital '${hospitalDoc.name}' in MongoDB!`);
-
-    // 4. ALSO SYNC TO MEDICAL REPORTS COLLECTION SO TIMELINE UPDATES INSTANTLY
-    try {
-      await MedicalReport.create({
-        patientName: newPatient.name,
-        birthCertificateNumber: newPatient.birthCertificateNumber,
-        assignedDoctor: newPatient.assignedDoctor,
-        symptoms: newPatient.symptoms,
-        assignedHospital: hospitalDoc.name,
-        healthId: newPatient.birthCertificateNumber,
-        title: diagnosis ? `Diagnostic Report: ${diagnosis}` : "Clinical Evaluation Report",
-        category: "Blood Test",
-        recordDate: new Date(),
-        metrics: {
-          bloodSugar: 139,
-          hba1c: 6.8,
-          bloodPressureSystolic: 140,
-          bloodPressureDiastolic: 90,
-          eGFR: 88,
-        },
-        notes: notes || `Patient evaluation recorded by ${assignedDoctor} at ${hospitalDoc.name}.`,
-      });
-    } catch (reportErr) {
-      console.warn("MedicalReport sync notice:", reportErr.message);
-    }
-
-    // 5. RETURN HTTP 201 CREATED WITH SAVED DOCUMENT
     return res.status(201).json({
       success: true,
-      message: `Patient record for '${newPatient.name}' saved successfully under '${hospitalDoc.name}'!`,
+      message: `Patient record for '${newPatient.name}' created under '${hospitalDoc.hospitalName}'!`,
+      patient: newPatient,
       data: newPatient,
     });
   } catch (error) {
-    console.error("[POST /api/patients ERROR]", error);
-
-    if (error.name === "ValidationError") {
-      return res.status(400).json({
-        success: false,
-        message: `Validation Error: ${error.message}`,
-      });
-    }
-
-    return res.status(500).json({
-      success: false,
-      message: "Server Error: Failed to save patient record to database.",
-      error: process.env.NODE_ENV === "production" ? null : error.message,
-    });
+    next(error);
   }
 };
 
 /**
- * @desc    GET /api/patients - Fetch all patient records from MongoDB
- * @route   GET /api/patients
+ * @desc    GET /api/patients
+ *          Hospital fetches its own patient records (Tenant Isolation)
  */
 exports.getPatients = async (req, res, next) => {
   try {
-    const patients = await Patient.find().sort({ createdAt: -1 }).populate("hospitalId", "name location");
+    let query = {};
+    const token = req.cookies?.hospitalToken;
+
+    if (token) {
+      try {
+        const decoded = jwt.verify(token, JWT_SECRET);
+        if (decoded?.id) query.hospitalId = decoded.id;
+      } catch (err) {}
+    }
+
+    const patients = await Patient.find(query)
+      .sort({ visitDate: -1, createdAt: -1 })
+      .populate("hospitalId", "hospitalName location");
 
     return res.status(200).json({
       success: true,
       count: patients.length,
+      patients,
       data: patients,
     });
   } catch (error) {
-    console.error("[GET /api/patients ERROR]", error);
+    next(error);
+  }
+};
+
+/**
+ * @desc    PUT /api/patients/:id - Update Patient Record
+ */
+exports.updatePatient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const updateData = req.body;
+
+    const patient = await Patient.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    });
+
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient record not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Patient record for '${patient.name}' updated successfully!`,
+      patient,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    DELETE /api/patients/:id - Delete Patient Record
+ */
+exports.deletePatient = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const patient = await Patient.findByIdAndDelete(id);
+
+    if (!patient) {
+      return res.status(404).json({
+        success: false,
+        message: "Patient record not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Patient record for '${patient.name}' deleted successfully!`,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * @desc    GET /api/patients/search?q=... or birthCertificateNumber=...
+ */
+exports.searchPatients = async (req, res, next) => {
+  try {
+    const { q, birthCertificateNumber } = req.query;
+    const searchCert = birthCertificateNumber || q;
+
+    if (!searchCert) {
+      return res.status(400).json({
+        success: false,
+        message: "Please provide a search term or birthCertificateNumber.",
+      });
+    }
+
+    const patients = await Patient.find({
+      $or: [
+        { birthCertificateNumber: { $regex: searchCert, $options: "i" } },
+        { name: { $regex: searchCert, $options: "i" } },
+      ],
+    }).sort({ visitDate: -1 });
+
+    return res.status(200).json({
+      success: true,
+      count: patients.length,
+      patients,
+    });
+  } catch (error) {
     next(error);
   }
 };

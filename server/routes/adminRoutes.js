@@ -2,34 +2,26 @@ const express = require("express");
 const router = express.Router();
 const {
   adminLogin,
-  getAdminMe,
-  adminLogout,
-  getSystemStats,
+  getAdminDashboard,
+  createHospital,
   getHospitals,
-  addHospital,
-  updateHospitalDetails,
-  getDoctors,
-  addDoctor,
-  deleteDoctor,
-  updateDoctorDetails,
-  assignDoctorToHospital,
+  updateHospital,
+  deleteHospital,
 } = require("../controllers/adminController");
 
+// POST /api/admin/login
 router.post("/login", adminLogin);
-router.get("/me", getAdminMe);
-router.post("/logout", adminLogout);
-router.get("/stats", getSystemStats);
 
-// Hospital Database Routes
-router.get("/hospitals", getHospitals);
-router.post("/hospitals", addHospital);
-router.put("/hospitals/:hospitalId", updateHospitalDetails);
+// GET /api/admin/dashboard
+router.get("/dashboard", getAdminDashboard);
 
-// Doctor Database Routes
-router.get("/doctors", getDoctors);
-router.post("/doctors", addDoctor);
-router.delete("/doctors/:doctorId", deleteDoctor);
-router.put("/doctors/:doctorId", updateDoctorDetails);
-router.put("/doctors/assign", assignDoctorToHospital);
+// Hospital Management Routes: POST, GET, PUT, DELETE
+router.route("/hospitals")
+  .post(createHospital)
+  .get(getHospitals);
+
+router.route("/hospitals/:id")
+  .put(updateHospital)
+  .delete(deleteHospital);
 
 module.exports = router;
